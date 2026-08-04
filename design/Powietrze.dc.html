@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#07090d;font-family:'Poppins',-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .scr::-webkit-scrollbar{display:none}
+  a{color:inherit}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:4px;border-radius:4px;outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.5);cursor:pointer;border:none}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;justify-content:center;align-items:flex-start;gap:48px;padding:56px 40px;flex-wrap:wrap;background:radial-gradient(1200px 800px at 30% -10%, #12161f 0%, #07090d 60%)">
+
+  <!-- ===================== PHONE ===================== -->
+  <div style="position:relative;width:411px;height:866px;border-radius:58px;background:#000;padding:11px;box-shadow:0 50px 120px rgba(0,0,0,.6), 0 0 0 2px rgba(255,255,255,.06), inset 0 0 0 2px rgba(255,255,255,.04);flex:none">
+    <div style="position:relative;width:389px;height:844px;border-radius:47px;overflow:hidden;background:#07090d">
+
+      <!-- dynamic background -->
+      <div style="{{ bgStyle }}"></div>
+      <canvas ref="{{ canvasRef }}" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
+      <div style="{{ skylineStyle }}">
+        <svg viewBox="0 0 389 150" width="389" height="150" preserveAspectRatio="none" style="display:block">
+          <path fill="currentColor" d="M0,150 L0,96 L14,96 L14,74 L26,74 L26,96 L40,96 L40,58 L52,52 L64,58 L64,96 L78,96 L78,40 L86,34 L94,40 L94,96 L108,96 L108,70 L120,70 L120,50 L132,50 L132,96 L146,96 L146,64 L158,64 L158,82 L170,82 L170,44 L182,38 L194,44 L194,96 L206,96 L206,60 L218,60 L218,78 L230,78 L230,52 L242,52 L242,30 L250,24 L258,30 L258,96 L272,96 L272,68 L284,68 L284,48 L296,48 L296,96 L310,96 L310,58 L322,52 L334,58 L334,80 L348,80 L348,66 L360,66 L360,88 L376,88 L376,72 L389,72 L389,150 Z"/>
+        </svg>
+      </div>
+
+      <!-- status bar -->
+      <div style="position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 8px;z-index:40;pointer-events:none">
+        <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:.3px">9:41</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="#fff"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="4.5" width="3" height="7.5" rx="1"/><rect x="10" y="2" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+          <svg width="24" height="12" viewBox="0 0 24 12" fill="none"><rect x="1" y="1" width="19" height="10" rx="3" stroke="#fff" stroke-opacity=".5"/><rect x="2.5" y="2.5" width="14" height="7" rx="1.5" fill="#fff"/><rect x="21" y="4" width="2" height="4" rx="1" fill="#fff" fill-opacity=".5"/></svg>
+        </div>
+      </div>
+      <!-- dynamic island -->
+      <div style="position:absolute;top:11px;left:50%;transform:translateX(-50%);width:118px;height:34px;background:#000;border-radius:19px;z-index:41"></div>
+
+      <!-- ============ APP VIEW ============ -->
+      <sc-if value="{{ isApp }}" hint-placeholder-val="{{ true }}">
+      <div class="scr" style="position:absolute;inset:0;overflow-y:auto;z-index:20;-ms-overflow-style:none;scrollbar-width:none">
+
+        <!-- ---- TERAZ ---- -->
+        <sc-if value="{{ isTeraz }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:70px 24px 130px;min-height:844px">
+          <div style="text-align:center">
+            <div style="font-size:12px;font-weight:600;letter-spacing:2.4px;color:rgba(255,255,255,.62)">TWOJA LOKALIZACJA</div>
+            <div style="font-size:30px;font-weight:500;color:#fff;margin-top:4px">{{ city }}</div>
+            <div style="font-size:12.5px;font-weight:400;color:rgba(255,255,255,.5);margin-top:5px">{{ station }}</div>
+          </div>
+
+          <div style="position:relative;display:flex;flex-direction:column;align-items:center;margin-top:26px">
+            <div style="{{ glowStyle }}"></div>
+            <div style="{{ numberStyle }}">{{ index }}</div>
+            <div style="{{ bandStyle }}">{{ band }}</div>
+            <div style="font-size:14px;font-weight:400;color:rgba(255,255,255,.72);margin-top:8px">PM2.5 · {{ pm25 }} µg/m³</div>
+          </div>
+
+          <div style="max-width:280px;margin:26px auto 0;text-align:center;font-size:16px;font-weight:400;line-height:1.45;color:rgba(255,255,255,.92);text-wrap:pretty">{{ advice }}</div>
+
+          <div style="height:150px"></div>
+
+          <!-- 24h chart -->
+          <div style="background:rgba(255,255,255,.07);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.09);border-radius:22px;padding:18px 18px 14px;margin-top:8px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.55);display:flex;align-items:center;gap:6px">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"><path d="M12 8v5l3 2M12 3a9 9 0 100 18 9 9 0 000-18z"/></svg>
+              OSTATNIE 24 GODZINY
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:3px;height:76px;margin-top:14px">
+              <sc-for list="{{ chartBars }}" as="bar" hint-placeholder-count="24">
+                <div style="{{ bar.barStyle }}"></div>
+              </sc-for>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,.4);margin-top:8px"><span>12:00</span><span>18:00</span><span>00:00</span><span>06:00</span><span>teraz</span></div>
+          </div>
+
+          <!-- tiles -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:20px;padding:16px">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;color:rgba(255,255,255,.5)">PM10</div>
+              <div style="font-size:30px;font-weight:600;color:#fff;margin-top:6px">{{ pm10 }}</div>
+              <div style="font-size:11px;color:rgba(255,255,255,.45)">µg/m³</div>
+            </div>
+            <div style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:20px;padding:16px">
+              <div style="font-size:11px;font-weight:600;letter-spacing:1px;color:rgba(255,255,255,.5)">NO₂</div>
+              <div style="font-size:30px;font-weight:600;color:#fff;margin-top:6px">{{ no2 }}</div>
+              <div style="font-size:11px;color:rgba(255,255,255,.45)">µg/m³</div>
+            </div>
+          </div>
+
+          <!-- forecast -->
+          <div style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);border-radius:22px;padding:16px 8px;margin-top:12px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.5);padding:0 10px 4px">PROGNOZA</div>
+            <div style="display:flex;justify-content:space-between;padding:12px 6px 4px">
+              <sc-for list="{{ forecast }}" as="f" hint-placeholder-count="6">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:9px;flex:1">
+                  <span style="font-size:11px;color:rgba(255,255,255,.55)">{{ f.t }}</span>
+                  <span style="{{ f.dotStyle }}"></span>
+                  <span style="font-size:13px;font-weight:600;color:#fff">{{ f.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ---- MIEJSCA ---- -->
+        <sc-if value="{{ isMiejsca }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:64px 18px 130px;min-height:844px;background:linear-gradient(180deg,#0b0e15,#07090d)">
+          <sc-if value="{{ notSearching }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0 6px 10px">
+              <div style="font-size:32px;font-weight:600;color:#fff">Miejsca</div>
+              <div style="font-size:15px;font-weight:500;color:{{ accent }}">Edytuj</div>
+            </div>
+          </sc-if>
+
+          <!-- search field -->
+          <div style="display:flex;align-items:center;gap:10px;padding:0 4px">
+            <div onClick="{{ openSearch }}" style="flex:1;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.09);border-radius:13px;padding:11px 14px;cursor:pointer">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+              <input value="{{ search }}" onInput="{{ onSearch }}" onFocus="{{ openSearch }}" placeholder="Szukaj miasta lub stacji" style="flex:1;background:none;border:none;outline:none;color:#fff;font-family:inherit;font-size:15px"/>
+            </div>
+            <sc-if value="{{ searchMode }}" hint-placeholder-val="{{ true }}">
+              <div onClick="{{ cancelSearch }}" style="font-size:15px;font-weight:500;color:{{ accent }};cursor:pointer">Anuluj</div>
+            </sc-if>
+          </div>
+
+          <!-- saved list -->
+          <sc-if value="{{ notSearching }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
+            <sc-for list="{{ placesList }}" as="p" hint-placeholder-count="5">
+              <div onClick="{{ p.onOpen }}" style="{{ p.rowStyle }}">
+                <div style="position:absolute;inset:0;{{ p.rowBg }}"></div>
+                <div style="position:relative;display:flex;align-items:center;justify-content:space-between;padding:16px 18px">
+                  <div>
+                    <div style="font-size:20px;font-weight:500;color:#fff">{{ p.city }}</div>
+                    <div style="font-size:11.5px;color:rgba(255,255,255,.6);margin-top:2px">{{ p.station }}</div>
+                    <div style="font-size:12px;font-weight:500;margin-top:9px;color:rgba(255,255,255,.85)">{{ p.band }} <span style="{{ p.trendStyle }}">{{ p.trend }}</span></div>
+                  </div>
+                  <div style="{{ p.idxStyle }}">{{ p.idx }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          </sc-if>
+
+          <!-- search results -->
+          <sc-if value="{{ searchMode }}" hint-placeholder-val="{{ true }}">
+          <div style="margin-top:16px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.4);padding:0 8px 8px">{{ resultsLabel }}</div>
+            <div style="display:flex;flex-direction:column">
+              <sc-for list="{{ searchResults }}" as="r" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:14px;padding:12px 8px;border-bottom:1px solid rgba(255,255,255,.06)">
+                  <div style="{{ r.chipStyle }}">{{ r.idx }}</div>
+                  <div style="flex:1">
+                    <div style="font-size:16px;font-weight:500;color:#fff">{{ r.city }}</div>
+                    <div style="font-size:12px;color:rgba(255,255,255,.5)">{{ r.station }} · {{ r.dist }}</div>
+                  </div>
+                  <div onClick="{{ r.onAdd }}" style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:20px;font-weight:400;color:#fff">+</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          </sc-if>
+        </div>
+        </sc-if>
+
+        <!-- ---- USTAWIENIA ---- -->
+        <sc-if value="{{ isUst }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:64px 18px 130px;min-height:844px;background:linear-gradient(180deg,#0b0e15,#07090d)">
+          <div style="font-size:32px;font-weight:600;color:#fff;padding:0 6px 16px">Ustawienia</div>
+
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.4);padding:0 12px 8px">LOKALIZACJA</div>
+          <div style="background:rgba(255,255,255,.06);border-radius:18px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+              <span style="font-size:15px;color:#fff">Użyj mojej lokalizacji</span>
+              <div onClick="{{ tgLoc.onToggle }}" style="{{ tgLoc.track }}"><div style="{{ tgLoc.knob }}"></div></div>
+            </div>
+            <div style="padding:15px 16px">
+              <div style="font-size:15px;color:#fff;margin-bottom:11px">Dokładność</div>
+              <div style="display:flex;background:rgba(255,255,255,.08);border-radius:11px;padding:3px">
+                <sc-for list="{{ precisionOpts }}" as="o" hint-placeholder-count="2">
+                  <div onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.4);padding:22px 12px 8px">POWIADOMIENIA</div>
+          <div style="background:rgba(255,255,255,.06);border-radius:18px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+              <span style="font-size:15px;color:#fff">Alert smogowy</span>
+              <div onClick="{{ tgAlert.onToggle }}" style="{{ tgAlert.track }}"><div style="{{ tgAlert.knob }}"></div></div>
+            </div>
+            <div style="padding:15px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <span style="font-size:15px;color:#fff">Próg alertu</span>
+                <span style="{{ threshStyle }}">{{ threshold }}</span>
+              </div>
+              <input type="range" min="25" max="200" value="{{ threshold }}" onInput="{{ onThresh }}" style="{{ threshTrackStyle }}"/>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+              <span style="font-size:15px;color:#fff">Godziny ciszy</span>
+              <span style="font-size:15px;color:rgba(255,255,255,.5)">22:00 – 07:00</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px">
+              <div><div style="font-size:15px;color:#fff">Poranne podsumowanie</div><div style="font-size:12px;color:rgba(255,255,255,.45);margin-top:2px">07:30</div></div>
+              <div onClick="{{ tgMorning.onToggle }}" style="{{ tgMorning.track }}"><div style="{{ tgMorning.knob }}"></div></div>
+            </div>
+          </div>
+
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.4);padding:22px 12px 8px">WIDŻET I WYGLĄD</div>
+          <div style="background:rgba(255,255,255,.06);border-radius:18px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+              <span style="font-size:15px;color:#fff">Stacja widżetu</span>
+              <span style="font-size:15px;color:rgba(255,255,255,.5)">Automatyczna ›</span>
+            </div>
+            <div style="padding:15px 16px">
+              <div style="font-size:15px;color:#fff;margin-bottom:11px">Skala indeksu</div>
+              <div style="display:flex;background:rgba(255,255,255,.08);border-radius:11px;padding:3px">
+                <sc-for list="{{ scaleOpts }}" as="o" hint-placeholder-count="3">
+                  <div onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.4);padding:22px 12px 8px">DANE</div>
+          <div style="background:rgba(255,255,255,.06);border-radius:18px;overflow:hidden">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid rgba(255,255,255,.06)">
+              <span style="font-size:15px;color:#fff">Źródło</span><span style="font-size:15px;color:rgba(255,255,255,.5)">GIOŚ</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 16px">
+              <span style="font-size:15px;color:#fff">Częstotliwość odświeżania</span><span style="font-size:15px;color:rgba(255,255,255,.5)">15 min</span>
+            </div>
+          </div>
+          <div style="text-align:center;font-size:11.5px;color:rgba(255,255,255,.35);padding:20px 24px;line-height:1.6">Dane: GIOŚ · Open-Meteo<br>Bez konta. Ulubione zostają na telefonie.</div>
+        </div>
+        </sc-if>
+
+      </div>
+
+      <!-- TAB BAR -->
+      <div style="position:absolute;bottom:0;left:0;right:0;height:88px;z-index:35;background:rgba(10,12,17,.55);backdrop-filter:blur(24px);border-top:1px solid rgba(255,255,255,.08);display:flex;padding:10px 0 24px">
+        <div onClick="{{ goTeraz }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer">
+          <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="{{ cTeraz }}" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="9" r="4"/><path d="M3 17h4M17 17h4M5 20.5h5M14 20.5h5"/></svg>
+          <span style="font-size:10.5px;font-weight:500;color:{{ cTeraz }}">Teraz</span>
+        </div>
+        <div onClick="{{ goMiejsca }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer">
+          <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="{{ cMiejsca }}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.3-7-11a7 7 0 0114 0c0 4.7-7 11-7 11z"/><circle cx="12" cy="10" r="2.4"/></svg>
+          <span style="font-size:10.5px;font-weight:500;color:{{ cMiejsca }}">Miejsca</span>
+        </div>
+        <div onClick="{{ goUst }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer">
+          <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="{{ cUst }}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+          <span style="font-size:10.5px;font-weight:500;color:{{ cUst }}">Ustawienia</span>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ============ WIDGETS VIEW ============ -->
+      <sc-if value="{{ isWidgets }}" hint-placeholder-val="{{ true }}">
+      <div class="scr" style="position:absolute;inset:0;overflow-y:auto;z-index:30;background:linear-gradient(200deg,#1a2230 0%,#0d1119 55%,#141a24 100%);-ms-overflow-style:none;scrollbar-width:none">
+        <div style="padding:60px 22px 40px">
+          <div style="text-align:center;color:rgba(255,255,255,.85);font-weight:300;font-size:64px;letter-spacing:1px;margin-bottom:2px">9:41</div>
+          <div style="text-align:center;color:rgba(255,255,255,.75);font-size:15px;font-weight:400;margin-bottom:28px">czwartek, 23 stycznia</div>
+
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.5);padding:0 4px 10px">EKRAN GŁÓWNY</div>
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <!-- small widget -->
+            <div style="{{ wSmallStyle }}">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <span style="font-size:13px;font-weight:600;color:#fff">{{ city }}</span>
+                <span style="{{ wTrendStyle }}">{{ trend }}</span>
+              </div>
+              <div style="{{ wIndexStyle }}">{{ index }}</div>
+              <div style="font-size:12px;font-weight:500;color:rgba(255,255,255,.9)">{{ band }}</div>
+            </div>
+            <!-- medium widget -->
+            <div style="{{ wMediumStyle }}">
+              <div style="display:flex;justify-content:space-between">
+                <div>
+                  <div style="font-size:13px;font-weight:600;color:#fff">{{ city }}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,.7)">{{ band }}</div>
+                </div>
+                <div style="{{ wIndexSmStyle }}">{{ index }}</div>
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:2px;height:26px;margin-top:auto">
+                <sc-for list="{{ sparkBars }}" as="b" hint-placeholder-count="12">
+                  <div style="{{ b.barStyle }}"></div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.5);padding:30px 4px 10px">EKRAN BLOKADY</div>
+          <div style="display:flex;gap:20px;align-items:center;justify-content:center;background:rgba(0,0,0,.25);border-radius:22px;padding:22px">
+            <!-- circular -->
+            <div style="display:flex;flex-direction:column;align-items:center;gap:7px">
+              <div style="position:relative;width:66px;height:66px">
+                <svg width="66" height="66" viewBox="0 0 66 66" style="transform:rotate(-90deg)">
+                  <circle cx="33" cy="33" r="28" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="6"/>
+                  <circle cx="33" cy="33" r="28" fill="none" stroke="{{ accent }}" stroke-width="6" stroke-linecap="round" stroke-dasharray="{{ ringDash }}"/>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;color:#fff">{{ index }}</div>
+              </div>
+              <span style="font-size:11px;color:rgba(255,255,255,.7)">Powietrze</span>
+            </div>
+            <!-- rectangular -->
+            <div style="flex:1;max-width:180px">
+              <div style="font-size:12px;font-weight:600;letter-spacing:.5px;color:rgba(255,255,255,.6)">POWIETRZE · {{ city }}</div>
+              <div style="display:flex;align-items:baseline;gap:8px;margin-top:3px">
+                <span style="{{ wLockIdxStyle }}">{{ index }}</span>
+                <span style="font-size:15px;font-weight:500;color:#fff">{{ band }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <!-- ===================== DESIGNER PANEL ===================== -->
+  <div style="width:320px;flex:none;position:sticky;top:56px;color:#fff">
+    <div style="font-size:22px;font-weight:600;letter-spacing:-.3px">Powietrze</div>
+    <div style="font-size:13px;color:rgba(255,255,255,.5);margin-top:4px;line-height:1.5">Jakość powietrza dla Polski. Cały ekran staje się warunkiem — im gorsze powietrze, tym gęstszy, cieplejszy pył.</div>
+
+    <div style="height:1px;background:rgba(255,255,255,.1);margin:22px 0"></div>
+
+    <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:rgba(255,255,255,.45)">PODGLĄD PROJEKTANTA</div>
+    <div style="display:flex;background:rgba(255,255,255,.07);border-radius:12px;padding:4px;margin-top:12px">
+      <div onClick="{{ showApp }}" style="{{ segApp }}">Aplikacja</div>
+      <div onClick="{{ showWidgets }}" style="{{ segWidgets }}">Widżety</div>
+    </div>
+
+    <div style="margin-top:24px;display:flex;align-items:baseline;justify-content:space-between">
+      <span style="font-size:13px;color:rgba(255,255,255,.6)">Indeks CAQI</span>
+      <span style="{{ panelIdxStyle }}">{{ index }} · {{ band }}</span>
+    </div>
+    <input type="range" min="0" max="200" value="{{ index }}" onInput="{{ onScrub }}" style="{{ panelTrackStyle }}"/>
+
+    <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:16px">
+      <sc-for list="{{ bandChips }}" as="c" hint-placeholder-count="6">
+        <div onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</div>
+      </sc-for>
+    </div>
+
+    <div style="font-size:12px;color:rgba(255,255,255,.4);margin-top:24px;line-height:1.55">Przeciągnij suwak albo dotknij pasma, aby zobaczyć wszystkie 6 stanów. Cząsteczki, poświata, wykres i widżety interpolują się z jednego źródła.</div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    index: 118,
+    tab: 'teraz',
+    view: 'app',
+    searchMode: false,
+    search: '',
+    threshold: 100,
+    settings: { loc: true, alert: true, morning: false, precision: 'Przybliżona', scale: 'CAQI' },
+    places: [
+      { id: 'krk', city: 'Kraków', station: 'Aleja Krasińskiego · GIOŚ', index: 118 },
+      { id: 'kat', city: 'Katowice', station: 'ul. Kossutha · GIOŚ', index: 96 },
+      { id: 'waw', city: 'Warszawa', station: 'Marszałkowska · GIOŚ', index: 54 },
+      { id: 'zak', city: 'Zakopane', station: 'ul. Sienkiewicza · GIOŚ', index: 162 },
+      { id: 'gda', city: 'Gdańsk', station: 'Wrzeszcz · GIOŚ', index: 19 },
+    ],
+  };
+
+  ANCH = [
+    { v: 12,  key: '#5FE3A1', deep: '#04231A', mid: '#0A3A2A' },
+    { v: 38,  key: '#A8E063', deep: '#0C2A16', mid: '#173D1F' },
+    { v: 63,  key: '#F5C63D', deep: '#241B05', mid: '#3D2E08' },
+    { v: 88,  key: '#FF9147', deep: '#2A1305', mid: '#43200A' },
+    { v: 125, key: '#FF5C5C', deep: '#2B0B0B', mid: '#451212' },
+    { v: 175, key: '#C77DFF', deep: '#1C0720', mid: '#2E0F35' },
+  ];
+  BANDS = ['Bardzo dobry','Dobry','Umiarkowany','Dostateczny','Zły','Bardzo zły'];
+  ADVICE = [
+    'Powietrze czyste. Idealny czas na spacer i sport.',
+    'Jakość dobra. Można spokojnie wyjść na zewnątrz.',
+    'Umiarkowanie. Wrażliwi — rozważcie krótszy wysiłek.',
+    'Ogranicz długie i intensywne aktywności na zewnątrz.',
+    'Zostań w domu. Zamknij okna, unikaj wysiłku.',
+    'Powietrze bardzo szkodliwe. Nie wychodź bez potrzeby.',
+  ];
+
+  hexRgb(h){ const n=parseInt(h.slice(1),16); return [n>>16&255,n>>8&255,n&255]; }
+  rgbHex(r){ return '#'+r.map(x=>Math.round(x).toString(16).padStart(2,'0')).join(''); }
+  lerp(a,b,t){ return a.map((x,i)=>x+(b[i]-x)*t); }
+  ramp(v, prop){
+    const A=this.ANCH;
+    if(v<=A[0].v) return A[0][prop];
+    if(v>=A[A.length-1].v) return A[A.length-1][prop];
+    for(let i=0;i<A.length-1;i++){
+      if(v>=A[i].v && v<=A[i+1].v){
+        const t=(v-A[i].v)/(A[i+1].v-A[i].v);
+        return this.rgbHex(this.lerp(this.hexRgb(A[i][prop]),this.hexRgb(A[i+1][prop]),t));
+      }
+    }
+    return A[0][prop];
+  }
+  bandOf(v){ return v<=25?0:v<=50?1:v<=75?2:v<=100?3:v<=150?4:5; }
+
+  scene(v){
+    const key=this.ramp(v,'key'), deep=this.ramp(v,'deep'), mid=this.ramp(v,'mid');
+    const bi=this.bandOf(v);
+    const pm25=Math.round(v*1.03);
+    return {
+      key, deep, mid, rgb:this.hexRgb(key), band:this.BANDS[bi],
+      advice:this.ADVICE[bi], pm25, pm10:Math.round(pm25*1.55), no2:Math.round(18+v*0.42),
+      density: Math.min(1, Math.max(0.03, (pm25)/135)),
+    };
+  }
+
+  canvasRef = (el)=>{ this._cv = el; if(el && !this._started) this._start(); };
+  _start(){
+    this._started=true;
+    const cv=this._cv, ctx=cv.getContext('2d');
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    const W=cv.clientWidth||389, H=cv.clientHeight||844;
+    cv.width=W*dpr; cv.height=H*dpr; ctx.scale(dpr,dpr);
+    this._W=W; this._H=H;
+    this._reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this._ps=[];
+    for(let i=0;i<260;i++) this._ps.push({x:Math.random()*W,y:Math.random()*H,r:0.8+Math.random()*2.6,vy:0.08+Math.random()*0.28,ph:Math.random()*6.28,sp:0.004+Math.random()*0.009,dr:5+Math.random()*12});
+    const loop=()=>{ this._raf=requestAnimationFrame(loop); this._draw(ctx); };
+    loop();
+  }
+  _draw(ctx){
+    const s=this._scene; if(!s) return;
+    const W=this._W,H=this._H; ctx.clearRect(0,0,W,H);
+    const col=s.rgb, n=Math.round(s.density*this._ps.length);
+    for(let i=0;i<n;i++){
+      const p=this._ps[i];
+      if(!this._reduced){ p.ph+=p.sp; p.y-=p.vy; if(p.y<-6){ p.y=H+6; p.x=Math.random()*W; } }
+      const x=p.x+Math.sin(p.ph)*p.dr;
+      const a=0.05+s.density*0.32;
+      ctx.beginPath();
+      ctx.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+      ctx.shadowBlur=5+s.density*9; ctx.shadowColor=`rgba(${col[0]},${col[1]},${col[2]},${a})`;
+      ctx.arc(x,p.y,p.r,0,6.283); ctx.fill();
+    }
+  }
+  componentWillUnmount(){ if(this._raf) cancelAnimationFrame(this._raf); }
+
+  set(patch){ this.setState(patch); }
+
+  renderVals(){
+    const v=this.state.index;
+    const s=this.scene(v);
+    this._scene=s;
+    const key=s.key, den=s.density;
+    const accent='#8fb7ff';
+
+    // chart 24h (deterministic)
+    const chartBars=[];
+    for(let h=0;h<24;h++){
+      const hv=Math.max(4, Math.round(v + 26*Math.sin(h*0.55+1.2) - 10*Math.cos(h*0.9)));
+      const c=this.ramp(hv,'key');
+      chartBars.push({ barStyle:{ flex:1, height:Math.min(100,Math.max(10,hv/2))+'%', background:c, borderRadius:'3px', opacity:0.55+0.45*(h/23) } });
+    }
+    // forecast
+    const flabels=['13:00','15:00','17:00','19:00','21:00','23:00'];
+    const forecast=flabels.map((t,i)=>{
+      const fv=Math.max(6,Math.round(v + 18*Math.sin(i*0.9)-6*i));
+      const c=this.ramp(fv,'key');
+      return { t, v:fv, dotStyle:{ width:'10px',height:'10px',borderRadius:'50%',background:c,boxShadow:'0 0 8px '+c } };
+    });
+    // sparkline (widget)
+    const sparkBars=[];
+    for(let i=0;i<12;i++){
+      const sv=Math.max(6,Math.round(v+22*Math.sin(i*0.7)-8*Math.cos(i)));
+      sparkBars.push({ barStyle:{ flex:1, height:Math.min(100,Math.max(14,sv/2))+'%', background:'rgba(255,255,255,.85)', borderRadius:'2px' } });
+    }
+
+    // places
+    const placesList=this.state.places.map(p=>{
+      const ps=this.scene(p.index);
+      const up=p.index>85; const tr=up?'↑':(p.index<40?'↓':'→');
+      return {
+        city:p.city, station:p.station, idx:p.index, band:ps.band,
+        trend:tr, onOpen:()=>this.set({index:p.index, tab:'teraz'}),
+        rowStyle:{ position:'relative', borderRadius:'22px', overflow:'hidden', border:'1px solid rgba(255,255,255,.09)', cursor:'pointer' },
+        rowBg:{ background:`linear-gradient(120deg, ${ps.mid} 0%, ${ps.deep} 100%)` },
+        idxStyle:{ fontSize:'44px', fontWeight:600, color:ps.key, textShadow:`0 0 22px ${ps.key}66`, lineHeight:1 },
+        trendStyle:{ color:ps.key, fontWeight:600 },
+      };
+    });
+
+    // search
+    const pool=[
+      {city:'Poznań',station:'Polanka · GIOŚ',index:63,dist:'298 km'},
+      {city:'Wrocław',station:'Korzeniowskiego · GIOŚ',index:71,dist:'268 km'},
+      {city:'Łódź',station:'Gdańska · GIOŚ',index:82,dist:'254 km'},
+      {city:'Rzeszów',station:'Rejtana · GIOŚ',index:58,dist:'155 km'},
+      {city:'Nowy Sącz',station:'Nadbrzeżna · GIOŚ',index:134,dist:'74 km'},
+      {city:'Szczecin',station:'Andrzejewskiego · GIOŚ',index:31,dist:'528 km'},
+      {city:'Lublin',station:'Śliwińskiego · GIOŚ',index:67,dist:'268 km'},
+      {city:'Bydgoszcz',station:'Plac Poznański · GIOŚ',index:74,dist:'358 km'},
+    ];
+    const q=this.state.search.trim().toLowerCase();
+    const filtered=q?pool.filter(c=>c.city.toLowerCase().includes(q)):pool.slice(0,4);
+    const searchResults=filtered.map(c=>{
+      const cs=this.scene(c.index);
+      return { ...c, chipStyle:{ minWidth:'46px',height:'46px',borderRadius:'12px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'19px',fontWeight:600,color:cs.key,background:`linear-gradient(135deg,${cs.mid},${cs.deep})`,border:'1px solid rgba(255,255,255,.1)' },
+        onAdd:()=>{ if(!this.state.places.find(p=>p.city===c.city)) this.set({places:[...this.state.places,{id:c.city,city:c.city,station:c.station,index:c.index}]}); this.set({searchMode:false,search:''}); } };
+    });
+
+    // band chips
+    const centers=[12,38,63,88,125,175];
+    const bandChips=this.BANDS.map((b,i)=>{
+      const active=this.bandOf(v)===i;
+      const c=this.ANCH[i].key;
+      return { label:b, onClick:()=>this.set({index:centers[i]}),
+        style:{ fontSize:'11px',fontWeight:500,padding:'6px 10px',borderRadius:'9px',cursor:'pointer',color:active?'#07090d':c, background:active?c:'rgba(255,255,255,.06)', border:'1px solid '+(active?c:'rgba(255,255,255,.1)') } };
+    });
+
+    // toggles
+    const tog=(on,fn)=>({ onToggle:fn,
+      track:{ width:'50px',height:'30px',borderRadius:'15px',padding:'2px',cursor:'pointer',display:'flex',background:on?'#34c759':'rgba(255,255,255,.18)',justifyContent:on?'flex-end':'flex-start',transition:'all .2s' },
+      knob:{ width:'26px',height:'26px',borderRadius:'50%',background:'#fff',boxShadow:'0 2px 5px rgba(0,0,0,.3)' } });
+    const st=this.state.settings;
+    const setS=(k,val)=>this.set({settings:{...st,[k]:val}});
+
+    const segOpt=(cur,val,label,fn)=>({ label, onClick:fn,
+      style:{ flex:1,textAlign:'center',fontSize:'13px',fontWeight:500,padding:'7px 4px',borderRadius:'9px',cursor:'pointer',color:cur===val?'#fff':'rgba(255,255,255,.55)',background:cur===val?'rgba(255,255,255,.16)':'transparent' } });
+    const precisionOpts=['Przybliżona','Dokładna'].map(o=>segOpt(st.precision,o,o,()=>setS('precision',o)));
+    const scaleOpts=[['CAQI','CAQI'],['US AQI','US AQI'],['µg/m³','µg/m³']].map(o=>segOpt(st.scale,o[0],o[1],()=>setS('scale',o[0])));
+
+    const seg=(active)=>({ flex:1,textAlign:'center',fontSize:'13px',fontWeight:500,padding:'8px',borderRadius:'9px',cursor:'pointer',color:active?'#07090d':'#fff',background:active?'#fff':'transparent',transition:'all .15s' });
+
+    const ringCirc=2*Math.PI*28;
+    const ringPct=Math.min(1,v/200);
+
+    return {
+      index:v, city:this.state.places.find(p=>Math.round(p.index)===v)?.city || 'Kraków',
+      station:'Aleja Krasińskiego · stacja GIOŚ · 12 min temu',
+      band:s.band, advice:s.advice, pm25:s.pm25, pm10:s.pm10, no2:s.no2, accent,
+      trend: v>85?'↑':(v<40?'↓':'→'),
+      canvasRef:this.canvasRef,
+      isApp:this.state.view==='app', isWidgets:this.state.view==='widgets',
+      isTeraz:this.state.tab==='teraz', isMiejsca:this.state.tab==='miejsca', isUst:this.state.tab==='ustawienia',
+      searchMode:this.state.searchMode, notSearching:!this.state.searchMode, search:this.state.search,
+      resultsLabel:q?'WYNIKI':'W POBLIŻU',
+      bgStyle:{ position:'absolute',inset:0,background:`radial-gradient(120% 80% at 50% 8%, ${s.mid} 0%, ${s.deep} 48%, #07090d 100%)` },
+      skylineStyle:{ position:'absolute',left:0,right:0,top:'44%',color:'rgba(3,5,9,'+(0.72-den*0.32)+')',filter:`blur(${(den*7).toFixed(1)}px)`,opacity:(1-den*0.45).toFixed(2),pointerEvents:'none',zIndex:10 },
+      glowStyle:{ position:'absolute',top:'-10px',width:'260px',height:'260px',borderRadius:'50%',background:`radial-gradient(circle, ${key}44 0%, transparent 68%)`,pointerEvents:'none' },
+      numberStyle:{ position:'relative',fontSize:'128px',fontWeight:600,lineHeight:1,color:key,textShadow:`0 0 42px ${key}88, 0 0 90px ${key}44`,letterSpacing:'-3px' },
+      bandStyle:{ fontSize:'22px',fontWeight:500,color:key,marginTop:'2px' },
+      chartBars, forecast, sparkBars, placesList, searchResults, bandChips,
+      cTeraz:this.state.tab==='teraz'?key:'rgba(255,255,255,.45)',
+      cMiejsca:this.state.tab==='miejsca'?accent:'rgba(255,255,255,.45)',
+      cUst:this.state.tab==='ustawienia'?accent:'rgba(255,255,255,.45)',
+      goTeraz:()=>this.set({tab:'teraz',searchMode:false}), goMiejsca:()=>this.set({tab:'miejsca'}), goUst:()=>this.set({tab:'ustawienia',searchMode:false}),
+      openSearch:()=>this.set({searchMode:true}), cancelSearch:()=>this.set({searchMode:false,search:''}),
+      onSearch:(e)=>this.set({search:e.target.value}),
+      onScrub:(e)=>this.set({index:Number(e.target.value)}),
+      showApp:()=>this.set({view:'app'}), showWidgets:()=>this.set({view:'widgets'}),
+      segApp:seg(this.state.view==='app'), segWidgets:seg(this.state.view==='widgets'),
+      panelIdxStyle:{ fontSize:'13px',fontWeight:600,color:key },
+      panelTrackStyle:{ width:'100%',marginTop:'10px',background:`linear-gradient(90deg, ${key}, ${key}55)` },
+      threshold:this.state.threshold, onThresh:(e)=>this.set({threshold:Number(e.target.value)}),
+      threshStyle:{ fontSize:'15px',fontWeight:600,color:this.ramp(this.state.threshold,'key') },
+      threshTrackStyle:{ width:'100%',background:`linear-gradient(90deg, ${this.ramp(this.state.threshold,'key')}, rgba(255,255,255,.15))` },
+      tgLoc:tog(st.loc,()=>setS('loc',!st.loc)), tgAlert:tog(st.alert,()=>setS('alert',!st.alert)), tgMorning:tog(st.morning,()=>setS('morning',!st.morning)),
+      precisionOpts, scaleOpts,
+      // widgets
+      wSmallStyle:{ width:'150px',height:'150px',borderRadius:'26px',padding:'16px',display:'flex',flexDirection:'column',justifyContent:'space-between',background:`linear-gradient(155deg, ${key}, ${s.deep})`,boxShadow:'0 12px 30px rgba(0,0,0,.4)' },
+      wMediumStyle:{ flex:1,height:'150px',borderRadius:'26px',padding:'16px',display:'flex',flexDirection:'column',background:`linear-gradient(155deg, ${s.mid}, ${s.deep})`,border:'1px solid rgba(255,255,255,.08)',boxShadow:'0 12px 30px rgba(0,0,0,.4)' },
+      wIndexStyle:{ fontSize:'52px',fontWeight:600,color:'#fff',lineHeight:1,textShadow:`0 0 20px ${key}` },
+      wIndexSmStyle:{ fontSize:'40px',fontWeight:600,color:key,lineHeight:1 },
+      wTrendStyle:{ fontSize:'16px',color:'#fff',fontWeight:600 },
+      wLockIdxStyle:{ fontSize:'34px',fontWeight:600,color:key,lineHeight:1 },
+      ringDash:`${(ringCirc*ringPct).toFixed(1)} ${ringCirc.toFixed(1)}`,
+    };
+  }
+}
+</script>
+</body>
+</html>
