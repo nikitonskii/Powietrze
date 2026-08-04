@@ -5,7 +5,7 @@
 ## What the harness gained
 - CLAUDE.md v1 — always-loaded constitution (≤150 lines, pointers only).
 - OS sandbox + permission boundary (.claude/settings.json): gates run
-  free, irreversible actions are impossible, design/ is read-only.
+  free, irreversible actions are blocked or require explicit human approval, design/ is read-only.
 - post-edit-check.sh — first in-loop feedback hook (prettier → eslint →
   tsc, exit-2 stderr feedback).
 - CI gate (lint/typecheck/test); branch protection on main pending the
