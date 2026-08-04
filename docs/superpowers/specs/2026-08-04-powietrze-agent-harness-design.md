@@ -32,6 +32,7 @@ The design handoff (`design/README.md` + `Powietrze.dc.html`) is the source of t
 4. **Add a perspective only where a mistake is expensive and hard to undo.** Plans get a critic (bad plans poison everything downstream); code gets hooks first, then one reviewer. No agent-per-role-name inflation.
 5. **Fresh context per milestone.** Each loop starts a clean session; the spec + `CLAUDE.md` + design handoff are the memory — never "what we discussed."
 6. **Ambiguity is where hallucination lives.** Precise, checkable acceptance criteria shrink the agent's interpretation space to near zero (Section 6).
+7. **Context is a budget, not a backpack.** Tokens cost money *and* attention — an agent drowning in context produces worse code, not better. Always-loaded files (`CLAUDE.md`) stay minimal and point to deeper docs that are read only when the task needs them (progressive disclosure). Fresh sessions per milestone keep context lean. Token usage is measured per milestone and recorded in the build journal; a milestone that costs twice the previous one for similar scope is a harness bug to investigate.
 
 ## 4. Repository layout
 
@@ -52,7 +53,10 @@ Powietrze/
 │       └── feature-loop/        # The encoded workflow (Section 5) + spec template
 ├── docs/
 │   ├── specs/                   # One spec per feature: scope, non-goals, AC with IDs
-│   └── decisions/               # ADRs — why bare RN, why MMKV, e2e deferral, etc.
+│   ├── decisions/               # ADRs — why bare RN, why MMKV, e2e deferral, etc.
+│   ├── nfr.md                   # Non-functional requirements (perf, offline, a11y, …)
+│   ├── architecture.md          # Module map + boundaries, kept short, agent-facing
+│   └── harness/                 # Human-facing build journal (Section 11)
 ├── design/                      # Design handoff copied into repo (README + prototype)
 ├── src/
 │   ├── core/                    # Pure TS domain logic — zero React imports
@@ -149,7 +153,30 @@ M1 precedes all UI deliberately: the app's most important decision (the color sy
 - **Fresh context per milestone:** spec + `CLAUDE.md` + design handoff are the only memory.
 - **Retro is mandatory:** a mistake repeated twice is a harness bug, not an agent bug.
 
-## 11. Out of scope (v1)
+## 11. Documentation system
+
+Two audiences, two kinds of documents — never mixed:
+
+**Agent-facing context docs** (optimize for token economy and precision):
+
+- `CLAUDE.md` — the constitution. Always loaded, therefore ruthlessly short: rules, module map pointer, definition of done. Links to deeper docs instead of inlining them.
+- `docs/architecture.md` — module map, boundaries, allowed dependencies. Read when planning.
+- `docs/decisions/` (ADRs) — one page per decision: context, decision, consequences. Agents consult them instead of re-deriving (or re-litigating) settled choices.
+- `docs/nfr.md` — non-functional requirements as checkable statements, same testability standard as AC: 60fps particle field on iPhone 12+, cold start budget, reduced-motion support, offline/stale behavior, bundle-size ceiling, no network calls outside the API client.
+- `docs/specs/` — per-feature specs with AC IDs (Section 6).
+
+Rules: every agent-facing doc states *when to read it* in its first line; progressive disclosure over completeness; a doc an agent never needs to load is deleted or merged. Duplication between docs is treated like duplication in code.
+
+**Human-facing build journal** (`docs/harness/`) — the practical-learning record, written as we go, one entry per harness change:
+
+- **What was added** (mechanism, file, config) and **what failure or need motivated it** — the journal is event-driven, not encyclopedic.
+- **Cost accounting:** tokens/cost per milestone (`/cost`), what was tried to reduce it, what worked.
+- **The human–agent bridge** (`docs/harness/bridge.md`): the contract of the collaboration — what the human must provide for each loop step (spec with testable AC, arbitration of conflicts, review verdicts) and what the agent must provide back (plans before code, evidence not claims, AC-audit reports, explicit blockers instead of guesses). When communication fails, the fix is a diff to this contract.
+- End state: the journal is a reproducible recipe — someone (including future you) can rebuild this harness from it, understanding *why* each piece exists.
+
+**Code-quality bar enforced through these docs:** no tight coupling (import-boundary lint + interfaces at module seams), high cohesion (one reason to change per module; `max-lines`/`complexity` caps force splits), YAGNI (reviewer flags speculative abstractions and dead code; no code without a driving AC), no redundancy (duplication flagged in review; shared logic promoted to `shared`/`core` only on second use, not preemptively).
+
+## 12. Out of scope (v1)
 
 - Visual/screenshot regression gate (revisit on evidence of need).
 - E2E suite before M5.
