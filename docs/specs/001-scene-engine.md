@@ -1,6 +1,6 @@
 # Spec 001: Scene engine
 
-**Status:** draft
+**Status:** approved
 **Milestone:** M1
 **Sources:** `design/README.md` §"The color system" + §"Atmosphere layer"
 (anchor table, thresholds, derived formulas); `design/Powietrze.dc.html`
