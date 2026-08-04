@@ -1,6 +1,6 @@
 module.exports = {
   preset: '@react-native/jest-preset',
-  collectCoverageFrom: ['src/core/**/*.ts', '!src/core/**/index.ts', '!src/core/**/types.ts'],
+  collectCoverageFrom: ['src/core/**/*.ts'],
   coverageThreshold: {
     './src/core/': {
       statements: 100,
