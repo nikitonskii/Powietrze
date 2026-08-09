@@ -23,7 +23,13 @@ contract later milestones import — changing it later requires an ADR note.>
 <Every AC has an ID (`AC-1`, …). Each is checkable: Given/When/Then or a
 rule-based invariant with exact values. Include negative scenarios
 (invalid input, boundaries, empty states). Each AC maps to ≥1 test naming
-its ID: `test('AC-3: …')`. Untraceable AC = unfinished spec.>
+its ID: `test('AC-3: …')`. Untraceable AC = unfinished spec.
+
+Data tables (colors, thresholds, copy) need at least one AC whose test
+pins the literal values — separate from any AC that only derives from
+them. A test that checks `f(x) === data[x]` proves `f` reads the table,
+not that the table is correct; without a literal fixture, a wrong value
+ships green. (M1 retro rule.)>
 
 - **AC-1** — Given …, when …, then … <exact expected value>.
 

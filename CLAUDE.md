@@ -34,6 +34,7 @@ every visual. This file is the always-loaded rulebook: pointers, not prose.
 
 ## Forbidden
 - Pushing to `main`; force-pushing anywhere.
+  Enforced at the remote by GitHub rulesets — `docs/harness/branch-protection.md`.
 - Editing anything under `design/` (read-only reference).
 - Adding a dependency without an ADR in `docs/decisions/`.
 - Declaring work complete with failing or skipped checks.
