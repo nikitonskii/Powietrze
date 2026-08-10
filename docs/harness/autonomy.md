@@ -25,9 +25,21 @@ Ordered outermost (hardest) to innermost:
    main working copy until they enter a worktree.
 4. **Permission deny list** (`.claude/settings.json` → `permissions.deny`) —
    explicit block on irreversible/outward Bash even if the mode would allow it:
-   `git push*`, `git reset --hard`, `git clean`, `git rebase`, `git restore`,
-   `git checkout -- *`, `git branch -d/-D`, `git worktree remove`,
-   `gh pr merge`, `rm -rf`, plus `design/` edits and `WebFetch`.
+   `git push --force`/`-f` (non-force push to feature branches + `develop` is
+   allowed; the remote rulesets protect `main`), `git reset --hard`,
+   `git clean`, `git rebase`, `git restore`, `git checkout -- *`,
+   `git branch -d/-D`, `git worktree remove`, **`gh pr merge` (so promotion to
+   `main` stays a deliberate human step)**, `rm -rf`, plus cross-repo/credential
+   `gh` (`repo create|delete|clone|…`, `gh auth *`, `gh secret *`,
+   `gh ruleset *`), `design/` edits and `WebFetch`.
+
+**Status (2026-08-10):** all walls verified live — branch-protection rulesets
+`protect-main`/`protect-develop` active and non-bypassable; `gh` authenticated
+with a fine-grained PAT scoped to `nikitonskii/Powietrze` only (proven: 403 on
+other repos' privileged endpoints, 404 on other private repos). Note: a scoped
+token can still *read* public repos — that is GitHub's public-data behavior,
+not a scope leak; verify scope by attempting a permission-gated action, never
+by listing visible repos.
 5. **Permission allow list** — the safe read-only / local / build commands that
    run without a prompt (lint/test/typecheck/jest/eslint/tsc/prettier, safe
    `git` inspection + branch/worktree-add, `npm install`, PR *create/view*).
