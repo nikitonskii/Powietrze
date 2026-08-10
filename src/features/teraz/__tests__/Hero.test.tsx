@@ -1,11 +1,10 @@
-import { StyleSheet } from 'react-native';
 import { render } from '@testing-library/react-native';
 import { Hero } from '../Hero';
 import { MOCK_PLACE } from '../mockData';
 import { scene } from '../../../core/scene';
+import { colorOf } from '../../../shared/test/colorOf';
 
 const s118 = scene(118);
-const colorOf = (node: any) => StyleSheet.flatten(node.props.style).color;
 
 describe('Hero', () => {
   test('AC-2: location label + city', async () => {
