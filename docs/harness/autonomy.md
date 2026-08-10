@@ -38,6 +38,30 @@ Ordered outermost (hardest) to innermost:
 7. **Post-edit hook** (`.claude/hooks/post-edit-check.sh`) — every Edit/Write
    is formatted, linted, and typechecked; failures are fed back to the agent.
 
+## Single-repository scope (this repo only)
+
+The agent must be able to affect **only `nikitonskii/Powietrze`**, never any
+other repo — local or remote. This is enforced at two levels, and one of them
+is human-only:
+
+- **Local filesystem:** the sandbox confines writes to this project dir +
+  scratch (`sandbox.filesystem`). The agent cannot write to other repos on
+  disk. Already in force.
+- **GitHub access — the real wall (human-only):** a `gh auth login` OAuth
+  token is **account-wide** and reaches every repo; no Claude setting can
+  narrow it. The only true repo-scoping is a **fine-grained Personal Access
+  Token** with *Only select repositories → Powietrze*. Authenticate `gh` with
+  that token. Give it the minimum: **Contents RW, Pull requests RW, Metadata
+  read** (add Workflows/Actions only if needed). **Deliberately omit
+  Administration** — so even holding the token the agent cannot alter branch
+  protection or repo settings, reinforcing the human-only-admin boundary.
+- **Command deny-list (secondary):** `permissions.deny` blocks cross-repo /
+  destructive `gh` (`repo create|delete|clone|fork|rename|archive|edit`),
+  credential management (`gh auth *`, so the agent can't swap its own token or
+  print it via `gh auth token`), `gh secret *`, and `gh ruleset *` (can't edit
+  its own guardrails). Prefix rules cannot parse `gh api repos/OTHER/...`, so
+  this is defense-in-depth, not the wall — the PAT scope is.
+
 ## The autonomy dial
 
 `permissions.defaultMode` controls how hands-off a run is. It is a **per-machine
