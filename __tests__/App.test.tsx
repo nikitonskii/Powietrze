@@ -1,13 +1,7 @@
-/**
- * @format
- */
-
-import React from 'react';
-import ReactTestRenderer from 'react-test-renderer';
+import { render } from '@testing-library/react-native';
 import App from '../App';
 
-test('renders correctly', async () => {
-  await ReactTestRenderer.act(() => {
-    ReactTestRenderer.create(<App />);
-  });
+test('App renders without crashing', async () => {
+  const { getByText } = await render(<App />);
+  expect(getByText('TWOJA LOKALIZACJA')).toBeTruthy();
 });

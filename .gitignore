@@ -78,3 +78,6 @@ yarn-error.log
 
 # Claude worktrees (session isolation)
 .claude/worktrees/
+
+# Claude per-machine local overrides (autonomy dial, personal prefs)
+.claude/settings.local.json
