@@ -67,14 +67,18 @@ module.exports = {
       env: { jest: true },
     },
     {
-      files: ['src/features/**/*.{ts,tsx}', 'src/shared/ui/**/*.{ts,tsx}'],
+      files: [
+        'src/features/**/*.{ts,tsx}',
+        'src/shared/ui/**/*.{ts,tsx}',
+        'src/app/**/*.{ts,tsx}',
+      ],
       rules: {
         'no-restricted-syntax': [
           'error',
           {
             selector: 'Literal[value=/^#[0-9a-fA-F]{3,8}$/]',
             message:
-              'No hard-coded hex in features/ui — use scene() or shared/tokens.',
+              'No hard-coded hex in features/ui/app — use scene() or shared/tokens.',
           },
         ],
       },
