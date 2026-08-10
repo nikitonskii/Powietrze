@@ -81,4 +81,56 @@ output total ≈ 1.05M tokens across ~13 dispatches; the controller kept task
 context out of its own window by handing every brief/report/diff over as files.
 
 ## Retro — corrections became rules
-_(placeholder — filled at merge, step 10)_
+
+1. **A gate configured is not a gate that bites.** The plan pasted an
+   `.eslintrc.js` boundaries block verbatim; under the installed
+   `eslint-plugin-boundaries@7`, extension-less TS imports classified as
+   `isUnknown` and were silently exempt — the import boundary would have
+   *looked* enforced while blocking nothing. It was caught only because Task 2
+   carried an explicit AC-13 evidence step (deliberately-bad probes, linted
+   then deleted), not by reading the config.
+   → **Rule:** any spec/task that embeds third-party tool config for a
+   mechanical gate must include a probe step that proves the gate *rejects a
+   real violation* before the gate is called done — configuration presence is
+   not evidence. The verifier reproduced this probe at step 7; keep that step.
+
+2. **Pasted config/code is written against a version, not the installed one.**
+   Two independent traps this milestone: the boundaries `policies`/`import-resolver`
+   requirement above, and `@testing-library/react-native@14`'s async
+   `render`/`rerender` + `TestInstance` (from `test-renderer`, not
+   `react-test-renderer`) — the plan's synchronous test snippets would not
+   compile. The second surfaced in Task 4 and would have re-surfaced in Tasks
+   5 and 6.
+   → **Rule:** when an implementer finds installed-dependency behavior that
+   diverges from the plan's assumptions, the controller records it as a
+   load-bearing cross-task fact and injects it into every later dispatch that
+   touches the same surface (done for the async-render fact → Tasks 5/6).
+   Durable toolchain assumptions live in the harness journal (this file's
+   "Toolchain drift" section); candidate promotion to the delegation guide.
+
+3. **The no-`any` rule applies to test code, and test utilities that would be
+   duplicated across tasks belong in a shared home from the start.** A
+   plan-mandated `colorOf = (node: any) => …` helper violated `CLAUDE.md` and
+   was about to be copied into a second suite. It became the shared, typed
+   `src/shared/test/colorOf.ts` (human-approved).
+   → **Rule:** `CLAUDE.md`'s "no `any` without an inline justification" is not
+   scoped to production code — test files included. A helper the plan repeats
+   across tasks is a shared module, not a copy-paste.
+
+4. **Mechanical gates must track new layers as they appear.** The no-hex rule
+   was scoped to `src/features/**` + `src/shared/ui/**` — correct when written,
+   but `src/app` (the custom tab bar, real UI) did not exist yet and slipped
+   the net. The whole-branch review caught the gap; it was extended to
+   `src/app/**` in the same milestone.
+   → **Rule:** when a milestone introduces a new layer that bears an existing
+   mechanical concern, extend the gate to it in the same change — don't leave
+   the scope frozen at the moment the rule was first written.
+
+5. **Environment limits are surfaced and deferred explicitly, never silently
+   worked around.** `pod install` could not run (CocoaPods gems absent); it was
+   reported at Task 1, tracked in the ledger, and deferred to the human's
+   machine for the Task 7 simulator build (AC-14) rather than faked. Jest needs
+   no pods, so tasks 1–6 were unaffected.
+   → **Rule (already the intended path):** a blocker the sandbox can't resolve
+   is logged and handed to human review with the exact remediation, not
+   papered over — the same escape-hatch discipline as M1's ADR-for-dependency.
