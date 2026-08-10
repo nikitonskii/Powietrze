@@ -1,6 +1,6 @@
 # Spec 002: Teraz hero (static)
 
-**Status:** draft
+**Status:** implemented
 **Milestone:** M2
 **Sources:** `design/README.md` §"Design language", §"The color system",
 §"Screens / Views" → "1. Teraz", §"Design Tokens" (pixels, colors, copy,
