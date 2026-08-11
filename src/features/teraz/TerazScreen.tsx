@@ -1,5 +1,6 @@
 import { StyleSheet, View } from 'react-native';
 import { scene } from '../../core/scene';
+import { Atmosphere } from '../../shared/ui/Atmosphere';
 import { GradientBackground } from '../../shared/ui/GradientBackground';
 import { spacing } from '../../shared/tokens';
 import { Hero } from './Hero';
@@ -9,6 +10,7 @@ export function TerazScreen() {
   const s = scene(MOCK_PLACE.index);
   return (
     <GradientBackground scene={s}>
+      <Atmosphere scene={s} />
       <View style={styles.content}>
         <Hero scene={s} place={MOCK_PLACE} />
       </View>
