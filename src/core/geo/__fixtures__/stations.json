@@ -1,0 +1,32 @@
+{
+ "Lista stacji pomiarowych": [
+  {
+   "Identyfikator stacji": 400,
+   "Nazwa stacji": "Kraków, Aleja Krasińskiego",
+   "Nazwa miasta": "Kraków",
+   "WGS84 φ N": "50.057678",
+   "WGS84 λ E": "19.926189"
+  },
+  {
+   "Identyfikator stacji": 530,
+   "Nazwa stacji": "Warszawa, Al. Niepodległości",
+   "Nazwa miasta": "Warszawa",
+   "WGS84 φ N": "52.219298",
+   "WGS84 λ E": "21.004724"
+  },
+  {
+   "Identyfikator stacji": 706,
+   "Nazwa stacji": "Gdańsk, ul. Powstańców Wielkopolskich",
+   "Nazwa miasta": "Gdańsk",
+   "WGS84 φ N": "54.398639",
+   "WGS84 λ E": "18.614333"
+  },
+  {
+   "Identyfikator stacji": 114,
+   "Nazwa stacji": "Wrocław, ul. Bartnicza",
+   "Nazwa miasta": "Wrocław",
+   "WGS84 φ N": "51.115933",
+   "WGS84 λ E": "17.141125"
+  }
+ ]
+}

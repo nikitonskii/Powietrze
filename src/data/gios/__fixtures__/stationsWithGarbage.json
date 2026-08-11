@@ -1,0 +1,18 @@
+{
+  "Lista stacji pomiarowych": [
+    {
+      "Identyfikator stacji": 530,
+      "Nazwa stacji": "Warszawa, Al. Niepodległości",
+      "Nazwa miasta": "Warszawa",
+      "WGS84 φ N": "52.219298",
+      "WGS84 λ E": "21.004724"
+    },
+    {
+      "Identyfikator stacji": 999,
+      "Nazwa stacji": "Nigdzie, Bez Współrzędnych",
+      "Nazwa miasta": "Nigdzie",
+      "WGS84 φ N": "",
+      "WGS84 λ E": "21.0"
+    }
+  ]
+}
