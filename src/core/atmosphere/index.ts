@@ -28,7 +28,8 @@ export function atmosphere(density: number): AtmosphereField {
   };
 }
 
-// Deterministic per-seed drift: upward vy + horizontal sine wander.
+// Deterministic per-seed drift: slow upward vy + horizontal sine wander.
+// `t` is elapsed FRAMES (the design's vy is px/frame); callers convert ms→frames.
 // `seed` in [0,1) selects this particle's vy/amplitude within the design ranges.
 // frozen === true → independent of t (field present but static, for reduce-motion).
 export function particleOffset(
@@ -40,7 +41,7 @@ export function particleOffset(
   const vy = DRIFT_VY_MIN + seed * (DRIFT_VY_MAX - DRIFT_VY_MIN);
   const amp = WANDER_MIN + seed * (WANDER_MAX - WANDER_MIN);
   return {
-    x: Math.sin(time * 0.001 + seed) * amp,
+    x: Math.sin(time * 0.02 + seed) * amp, // gentle sway, ~5s period
     y: -time * vy,
   };
 }

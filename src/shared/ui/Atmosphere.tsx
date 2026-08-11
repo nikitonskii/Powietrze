@@ -19,6 +19,8 @@ import {
   WANDER_MAX,
 } from '../../core/atmosphere';
 
+const MS_PER_FRAME = 1000 / 60; // the design's vy is px/frame; the clock is ms
+
 // Deterministic pseudo-random in [0,1) from an integer — a stable field seed.
 function rand(n: number): number {
   const x = Math.sin(n * 12.9898) * 43758.5453;
@@ -52,14 +54,14 @@ function ParticleDot({
   // single-sourced as the imported constants; `particleOffset` (AC-5) is the
   // pure, tested reference for this exact formula.
   const cx = useDerivedValue(() => {
-    const time = frozen ? 0 : clock.value;
+    const time = frozen ? 0 : clock.value / MS_PER_FRAME; // ms → frames
     const amp = WANDER_MIN + p.seed * (WANDER_MAX - WANDER_MIN);
-    return p.x + Math.sin(time * 0.001 + p.seed) * amp;
+    return p.x + Math.sin(time * 0.02 + p.seed) * amp;
   });
   const cy = useDerivedValue(() => {
-    const time = frozen ? 0 : clock.value;
+    const time = frozen ? 0 : clock.value / MS_PER_FRAME; // ms → frames
     const vy = DRIFT_VY_MIN + p.seed * (DRIFT_VY_MAX - DRIFT_VY_MIN);
-    const y = p.y - time * vy; // drift upward
+    const y = p.y - time * vy; // slow drift upward
     return ((y % height) + height) % height; // wrap so it loops
   });
   return <Circle cx={cx} cy={cy} r={p.r} color={color} opacity={opacity} />;
