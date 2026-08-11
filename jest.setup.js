@@ -3,6 +3,14 @@ jest.mock('react-native-linear-gradient', () => {
   return { __esModule: true, default: View };
 });
 
+// Native geolocation module: never load the real TurboModule under Jest. Unit
+// tests inject a fake Geolocation via the core interface; App.tsx only imports
+// the adapter at module scope (no IO), so a stub default is enough.
+jest.mock('@react-native-community/geolocation', () => ({
+  __esModule: true,
+  default: { getCurrentPosition: jest.fn() },
+}));
+
 // Official jest mock: also swaps SafeAreaProvider for a version that
 // renders children synchronously via context (the real SafeAreaProvider
 // defers children until a native onLayout event, which never fires under
