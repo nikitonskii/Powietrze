@@ -97,7 +97,9 @@ export function Atmosphere({
   return (
     <Canvas testID="atmosphere" style={StyleSheet.absoluteFill}>
       <Group>
-        <Blur blur={field.particleBlur} />
+        {/* Soft edge without erasing the tiny particles (design shadowBlur is
+            a per-particle halo, not a field-wide smear). */}
+        <Blur blur={1} />
         {particles.map((p, i) => (
           <ParticleDot
             key={i}
