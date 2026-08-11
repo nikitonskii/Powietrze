@@ -1,6 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 import type { Scene } from '../../core/scene';
 import { Text } from '../../shared/ui/Text';
+import { NumberGlow } from '../../shared/ui/NumberGlow';
 import { colors } from '../../shared/tokens';
 import type { Place } from './mockData';
 
@@ -16,13 +17,15 @@ export function Hero({ scene, place }: { scene: Scene; place: Place }) {
       <Text variant="station" color={colors.text.dim} style={styles.station}>
         {place.station} · {place.freshness}
       </Text>
-      <Text
-        variant="index"
-        color={scene.key}
-        style={[styles.number, { textShadowColor: `${scene.key}88` }]}
-      >
-        {String(place.index)}
-      </Text>
+      <NumberGlow color={scene.key}>
+        <Text
+          variant="index"
+          color={scene.key}
+          style={[styles.number, { textShadowColor: `${scene.key}88` }]}
+        >
+          {String(place.index)}
+        </Text>
+      </NumberGlow>
       <Text variant="band" color={scene.key}>
         {scene.band}
       </Text>
