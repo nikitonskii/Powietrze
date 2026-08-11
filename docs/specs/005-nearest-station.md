@@ -169,8 +169,14 @@ the same map (6c makes `findAll` throw; 6b makes `/data/getData/2752` throw).
 - **Geolocation is injected** (`Geolocation` interface) → a fake in tests; the device
   adapter (`@react-native-community/geolocation`) is the only untested-by-unit piece
   (thin; covered by the manual AC).
-- **`fetchStations`** is unpaginated `findAll` (~288 stations, ~one-time per launch);
-  kept in memory, no cache in v1. `getCurrentReading()` re-fetches on every call.
+- **`fetchStations`** hits `findAll` **with `?size=1000`** — the live endpoint is
+  paginated at 20 stations/page (~15 pages), so a bare `findAll` returns only page
+  0's 20 and resolves a wrong "nearest". One large page returns all ~290 in a single
+  call (`totalPages=1`); no client-side paging in v1 (tail dropped only above 1000
+  stations — documented). Kept in memory, no cache; `getCurrentReading()` re-fetches
+  each call. *(Corrected post-build: the original "unpaginated" assumption was wrong
+  and slipped past unit tests — the complete fixture masked it; the manual AC 005-8
+  on the simulator caught it.)*
 
 ## Risks & config
 

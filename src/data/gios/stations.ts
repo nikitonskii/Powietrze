@@ -34,9 +34,18 @@ export function parseStations(findAllJson: any): Station[] {
   return out;
 }
 
+// GIOŚ v1 findAll is PAGINATED (20 stations/page, ~15 pages). Request one large
+// page so all ~290 stations arrive in a single call (size=1000 → totalPages=1);
+// without a size param the app would only see page 0's 20 stations and pick a
+// wrong "nearest". No client-side paging in v1 — if GIOŚ ever exceeds 1000
+// stations the tail would be dropped (documented, acceptable at today's ~290).
+const FIND_ALL_PAGE_SIZE = 1000;
+
 export async function fetchStations(
   fetchImpl: typeof fetch = fetch,
 ): Promise<Station[]> {
-  const json = await (await fetchImpl(`${GIOS_BASE}/station/findAll`)).json();
+  const json = await (
+    await fetchImpl(`${GIOS_BASE}/station/findAll?size=${FIND_ALL_PAGE_SIZE}`)
+  ).json();
   return parseStations(json);
 }

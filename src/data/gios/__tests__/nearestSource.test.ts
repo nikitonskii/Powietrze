@@ -45,6 +45,8 @@ test('AC 005-5: resolves the nearest station (Warszawa 530) with its identity', 
     station: 'Al. Niepodległości · stacja GIOŚ',
   });
   expect(calls[0]).toContain('/station/findAll');
+  // findAll is paginated (20/page); must request a large page or nearest is wrong.
+  expect(calls[0]).toMatch(/size=\d{3,}/);
   expect(calls[1]).toContain('/station/sensors/530');
   expect(calls[2]).toContain('/data/getData/2752');
 });
