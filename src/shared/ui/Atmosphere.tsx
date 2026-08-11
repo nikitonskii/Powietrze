@@ -20,6 +20,10 @@ import {
 } from '../../core/atmosphere';
 
 const MS_PER_FRAME = 1000 / 60; // the design's vy is px/frame; the clock is ms
+// Ambient floor: keep a gently-alive field even on clean-air days (density
+// bottoms out at ~8 faint specks otherwise). Density still scales above this.
+const AMBIENT_MIN_COUNT = 48;
+const AMBIENT_MIN_OPACITY = 0.13;
 
 // Deterministic pseudo-random in [0,1) from an integer — a stable field seed.
 function rand(n: number): number {
@@ -80,6 +84,8 @@ export function Atmosphere({
   const osReduced = useReducedMotion();
   const frozen = reducedMotion ?? osReduced;
   const field = atmosphere(scene.density);
+  const count = Math.max(field.count, AMBIENT_MIN_COUNT);
+  const opacity = Math.max(field.particleOpacity, AMBIENT_MIN_OPACITY);
   const clock = useSharedValue(0);
   useFrameCallback(info => {
     clock.value = info.timeSinceFirstFrame ?? 0;
@@ -87,13 +93,13 @@ export function Atmosphere({
 
   const particles = useMemo<Particle[]>(
     () =>
-      Array.from({ length: field.count }, (_, i) => ({
+      Array.from({ length: count }, (_, i) => ({
         seed: rand(i * 2 + 1),
         x: rand(i * 3 + 2) * width,
         y: rand(i * 5 + 3) * height,
         r: RADIUS_MIN + rand(i * 7 + 5) * (RADIUS_MAX - RADIUS_MIN),
       })),
-    [field.count, width, height],
+    [count, width, height],
   );
 
   return (
@@ -108,7 +114,7 @@ export function Atmosphere({
             p={p}
             clock={clock}
             color={scene.key}
-            opacity={field.particleOpacity}
+            opacity={opacity}
             frozen={frozen}
             height={height}
           />
