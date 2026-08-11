@@ -1,6 +1,6 @@
 # Spec 004: GIOŚ live value (Kraków)
 
-**Status:** draft
+**Status:** implemented
 **Milestone:** M-data-1 (GIOŚ live value)
 **Sources:** `design/README.md` §"State Management" (data fetching, freshness),
 §"Screens/Views → 1. Teraz" (`station · freshness` line, loading/stale); GIOŚ v1
