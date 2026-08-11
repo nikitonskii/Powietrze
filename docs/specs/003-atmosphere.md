@@ -1,6 +1,6 @@
 # Spec 003: Atmosphere (signature-first)
 
-**Status:** draft
+**Status:** implemented
 **Milestone:** M3
 **Sources:** `design/README.md` §"Atmosphere layer", §"Screens / Views" →
 "1. Teraz" (radial glow + number shadow), §"Interactions & Behavior"
