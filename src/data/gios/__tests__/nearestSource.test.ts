@@ -72,6 +72,7 @@ test('AC 005-6b: nearest reading fetch throws → Kraków fallback', async () =>
   const guarded = ((url: string) => {
     if (url.includes('/data/getData/') && hit++ === 0)
       return Promise.reject(new Error('boom'));
+    // `any`: fetchImpl is the fake typed as `fetch`; call it with the raw url string.
     return (fetchImpl as any)(url);
   }) as unknown as typeof fetch;
   const reading = await createNearestStationSource(

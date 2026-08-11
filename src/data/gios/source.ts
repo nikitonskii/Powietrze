@@ -6,7 +6,7 @@ import {
   type Geolocation,
   type Station,
 } from '../../core/geo';
-import { GIOS_BASE, KRAKOW_STATION, KRAKOW_STATION_ID } from './constants';
+import { GIOS_BASE, KRAKOW_STATION } from './constants';
 import { findPm25SensorId, parseLatestPm25 } from './mappers';
 import { fetchStations } from './stations';
 
@@ -33,22 +33,21 @@ async function readStation(
   };
 }
 
-// Kraków-only convenience source (spec 004). Signature kept for compatibility;
-// `stationId` is retained for the 004 contract — v1 only Kraków's identity is
-// known here, so nearest resolution goes through createNearestStationSource.
+// Kraków-only convenience source (spec 004): builds the reading for the fixed
+// Kraków station. Nearest-by-location resolution goes through createNearestStationSource.
 export function createGiosSource(
   fetchImpl: typeof fetch = fetch,
-  _stationId: number = KRAKOW_STATION_ID,
 ): AirQualitySource {
   return { getCurrentReading: () => readStation(KRAKOW_STATION, fetchImpl) };
 }
 
 // Resolves the station nearest the device, falling back to Kraków on ANY
 // failure (permission denied, geo error, stations fetch, or reading error).
+// The Kraków fallback is intentional and total; the __DEV__ log keeps a
+// silent fallback debuggable (it's how the findAll-pagination bug surfaced).
 export function createNearestStationSource(
   geo: Geolocation,
   fetchImpl: typeof fetch = fetch,
-  _fallbackStationId: number = KRAKOW_STATION_ID,
 ): AirQualitySource {
   return {
     async getCurrentReading(): Promise<Reading> {
@@ -56,7 +55,10 @@ export function createNearestStationSource(
         const { lat, lon } = await geo.getCurrentPosition();
         const stations = await fetchStations(fetchImpl);
         return await readStation(nearestStation(lat, lon, stations), fetchImpl);
-      } catch {
+      } catch (e) {
+        if (__DEV__) {
+          console.warn('[nearest] location/reading failed; showing Kraków:', e);
+        }
         return readStation(KRAKOW_STATION, fetchImpl);
       }
     },

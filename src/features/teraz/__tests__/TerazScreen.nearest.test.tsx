@@ -23,3 +23,17 @@ test('AC 005-7: TerazScreen renders the resolved (non-Kraków) city + index', as
   expect(await screen.findByText('Warszawa')).toBeTruthy();
   expect(screen.getByText('42')).toBeTruthy();
 });
+
+test('AC 005-7: TerazScreen shows the loading state while the reading is pending', async () => {
+  // A source that never resolves keeps the screen in its loading state.
+  const pending: AirQualitySource = {
+    getCurrentReading: () => new Promise<Reading>(() => {}),
+  };
+  await render(
+    <AirSourceProvider source={pending}>
+      <TerazScreen />
+    </AirSourceProvider>,
+  );
+  expect(screen.getByTestId('teraz-loading')).toBeTruthy();
+  expect(screen.queryByText('Kraków')).toBeNull(); // no hardcoded fallback content
+});

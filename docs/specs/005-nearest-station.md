@@ -42,9 +42,10 @@ export function stationLabel(station: Station): string; // "Kraków, Aleja Krasi
 ```ts
 export function parseStations(findAllJson: unknown): Station[]; // pure map; drops entries with invalid coords
 export function fetchStations(fetchImpl?: typeof fetch): Promise<Station[]>;
-// The reading now carries the resolved station's identity (city + stationLabel):
+// The reading now carries the resolved station's identity (city + stationLabel).
+// The fallback is always Kraków (no fallbackStationId param — v1 only knows Kraków's identity):
 export function createNearestStationSource(
-  geo: Geolocation, fetchImpl?: typeof fetch, fallbackStationId?: number,
+  geo: Geolocation, fetchImpl?: typeof fetch,
 ): AirQualitySource;
 ```
 
@@ -54,10 +55,11 @@ to a private per-`Station` reading builder (fetch `/station/sensors/{station.id}
 whose `city = station.city` and `station = stationLabel(station)`). Both Kraków and
 an arbitrary nearest station share this one path.
 
-- **`createGiosSource`'s public signature is UNCHANGED**: `createGiosSource(fetchImpl?: typeof fetch, stationId?: number)`,
-  default `stationId = KRAKOW_STATION_ID`. When `stationId === 400` it builds the
-  reading from the `KRAKOW_STATION` constant, so the existing spec-004 path and its
-  `source.test.ts` are untouched. External callers (root `App.tsx`, spec 004) do not change.
+- **`createGiosSource(fetchImpl?: typeof fetch)`** builds the reading from the
+  `KRAKOW_STATION` constant. Its **`Reading` output is unchanged**, so the existing
+  spec-004 `source.test.ts` stays green. *(The 004 `stationId` param was dropped as
+  dead — no caller ever passed it; removing it satisfies CLAUDE.md's no-dead-code
+  rule over signature-stability, since the output contract is what 004 depends on.)*
 - **`KRAKOW_STATION` becomes a full `Station`** (was `{ city, station }` strings):
   `{ id: 400, name: 'Kraków, Aleja Krasińskiego', city: 'Kraków', lat: 50.057678, lon: 19.926189 }`.
   The hero label `'Aleja Krasińskiego · stacja GIOŚ'` is now produced by
@@ -73,7 +75,7 @@ read happen only on the first `getCurrentPosition()` call. This lets root `App.t
 construct the source at module scope, as it does today for `createGiosSource()`.
 
 Root `App.tsx` (not `src/app`) wires
-`createNearestStationSource(createDeviceGeolocation(), fetch, KRAKOW_STATION_ID)`
+`createNearestStationSource(createDeviceGeolocation(), fetch)`
 in place of today's `createGiosSource()`.
 
 ## Behavior — Acceptance Criteria

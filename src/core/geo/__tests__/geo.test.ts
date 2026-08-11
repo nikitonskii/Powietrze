@@ -7,6 +7,8 @@ import {
 } from '../index';
 
 // The fixture is GIOŚ's raw JSON-LD shape; map it to Station[] for these tests.
+// `any` is intentional here: the imported JSON is untyped external data whose
+// Polish keys we read positionally only in this test setup.
 const S: Station[] = (stationsFixture as any)['Lista stacji pomiarowych'].map(
   (e: any) => ({
     id: e['Identyfikator stacji'],

@@ -1,6 +1,5 @@
 // Isolates GIOŚ v1's JSON-LD Polish keys for station/findAll. `any` is used
 // deliberately: GIOŚ returns untyped external JSON, narrowed at this boundary.
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { Station } from '../../core/geo';
 import { GIOS_BASE } from './constants';
 
