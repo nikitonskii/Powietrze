@@ -14,3 +14,8 @@ jest.mock('react-native-safe-area-context', () => ({
   __esModule: true,
   ...require('react-native-safe-area-context/jest/mock').default,
 }));
+
+// Reanimated 4 test mock — worklets become no-ops under Jest.
+jest.mock('react-native-reanimated', () =>
+  require('react-native-reanimated/mock'),
+);
