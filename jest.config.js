@@ -1,5 +1,8 @@
 module.exports = {
   preset: '@react-native/jest-preset',
+  // Steer react-native-worklets imports to the JS (non-native) module so the
+  // worklets TurboModule proxy isn't required under Jest (Reanimated 4).
+  resolver: 'react-native-worklets/jest/resolver.js',
   setupFiles: [
     '<rootDir>/jest.setup.js',
     '@shopify/react-native-skia/jestSetup.js',

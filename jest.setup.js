@@ -15,7 +15,15 @@ jest.mock('react-native-safe-area-context', () => ({
   ...require('react-native-safe-area-context/jest/mock').default,
 }));
 
-// Reanimated 4 test mock — worklets become no-ops under Jest.
-jest.mock('react-native-reanimated', () =>
-  require('react-native-reanimated/mock'),
-);
+// Reanimated 4 test mock — worklets become no-ops under Jest. The bundled
+// mock doesn't surface a couple of newer hooks as named exports, so fill them.
+jest.mock('react-native-reanimated', () => {
+  const base = require('react-native-reanimated/mock');
+  return {
+    ...base,
+    useReducedMotion: base.useReducedMotion ?? (() => false),
+    useFrameCallback:
+      base.useFrameCallback ??
+      (() => ({ setActive: () => {}, isActive: false })),
+  };
+});
