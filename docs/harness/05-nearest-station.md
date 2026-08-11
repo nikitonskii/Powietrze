@@ -91,5 +91,27 @@ Note: the iOS location prompt can't be answered headlessly (no `idb`/accessibili
 the human tapped "Allow While Using App" once to grant, after which relaunches are
 deterministic.
 
+## Bundled change (owner decision)
+The atmosphere **ambient-floor** polish (commit `1cfa7ab`, the user-requested "make
+it gently alive") rides on this branch. It's outside spec 005's scope and untested;
+the whole-branch reviewer flagged it. Owner decision: **keep it bundled as-is** — it's
+small, intentional, and previously signed off ("lock it"). Recorded as an accepted
+deviation rather than reverted or re-architected.
+
 ## Retro — corrections became rules
-_(placeholder — filled at merge, step 10)_
+1. **Live list APIs may paginate; a *complete* fixture hides it.** GIOŚ `station/findAll`
+   returns 20/page (~15 pages), but the captured 4-station fixture was complete, so every
+   unit test passed while the running app saw only page 0's 20 stations and always fell
+   back to Kraków. **Rule:** when a data source returns a *list*, verify the LIVE
+   response's envelope/pagination (`totalPages`, `links`, `?size=`), not just a captured
+   fixture — and treat the manual/live AC as the real net for API-shape assumptions. Direct
+   echo of the M1 circular-fixture retro: a fixture cleaner or more complete than reality
+   is a liability.
+2. **A total, silent fallback needs a dev-visible signal.** The empty `catch {}` made the
+   pagination bug invisible until on-device diagnostics; `createNearestStationSource` now
+   `console.warn`s under `__DEV__` on every fallback. **Rule:** catch-all fallbacks log in
+   dev.
+3. **Some manual ACs can't be fully headless.** The iOS location prompt can't be answered
+   without `idb`/accessibility; this milestone needed one human tap to grant permission.
+   **Rule:** for geolocation/permission manual ACs, plan for a human-in-the-loop grant (or
+   add `idb` to the toolchain) rather than assuming full automation.
