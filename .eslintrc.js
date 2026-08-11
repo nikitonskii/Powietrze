@@ -11,6 +11,7 @@ module.exports = {
       { type: 'app', pattern: ['App.tsx', 'src/app/*'] },
       { type: 'features', pattern: 'src/features/*', capture: ['feature'] },
       { type: 'shared', pattern: 'src/shared/*' },
+      { type: 'data', pattern: 'src/data/*' },
       { type: 'core', pattern: 'src/core/*' },
     ],
   },
@@ -25,9 +26,17 @@ module.exports = {
             allow: {
               to: {
                 element: {
-                  types: { anyOf: ['app', 'features', 'shared', 'core'] },
+                  types: {
+                    anyOf: ['app', 'features', 'shared', 'data', 'core'],
+                  },
                 },
               },
+            },
+          },
+          {
+            from: { element: { type: 'data' } },
+            allow: {
+              to: { element: { types: { anyOf: ['data', 'core'] } } },
             },
           },
           {
