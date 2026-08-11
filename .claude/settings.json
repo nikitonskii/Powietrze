@@ -7,7 +7,8 @@
         "registry.npmjs.org",
         "github.com",
         "objects.githubusercontent.com",
-        "cdn.cocoapods.org"
+        "cdn.cocoapods.org",
+        "api.gios.gov.pl"
       ],
       "strictAllowlist": true
     }

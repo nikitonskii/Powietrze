@@ -5,7 +5,15 @@ import { NumberGlow } from '../../shared/ui/NumberGlow';
 import { colors } from '../../shared/tokens';
 import type { Place } from './mockData';
 
-export function Hero({ scene, place }: { scene: Scene; place: Place }) {
+export function Hero({
+  scene,
+  place,
+  pm25,
+}: {
+  scene: Scene;
+  place: Place;
+  pm25?: number; // real measured µg/m³; falls back to the scene-derived value
+}) {
   return (
     <View style={styles.wrap}>
       <Text variant="label" color={colors.text.label}>
@@ -30,7 +38,7 @@ export function Hero({ scene, place }: { scene: Scene; place: Place }) {
         {scene.band}
       </Text>
       <Text variant="pm" color={colors.text.mid} style={styles.pm}>
-        PM2.5 · {scene.pm25} µg/m³
+        PM2.5 · {Math.round(pm25 ?? scene.pm25)} µg/m³
       </Text>
       <Text variant="advice" color={colors.text.high} style={styles.advice}>
         {scene.advice}
