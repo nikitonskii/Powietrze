@@ -1,3 +1,5 @@
+import 'react-native-gesture-handler/jestSetup';
+
 jest.mock('react-native-linear-gradient', () => {
   const { View } = require('react-native');
   return { __esModule: true, default: View };
