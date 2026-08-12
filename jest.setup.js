@@ -78,8 +78,9 @@ jest.mock('react-native-reanimated', () => {
     useFrameCallback:
       base.useFrameCallback ??
       (() => ({ setActive: () => {}, isActive: false })),
-    // RNGH's ReanimatedSwipeable calls Reanimated.isSharedValue; the bundled mock
-    // doesn't export it. A stub returning false is enough to render under Jest.
+    // RNGH's Gesture/GestureDetector internals (used by DraggableFavorites' Gesture.Pan)
+    // call Reanimated.isSharedValue when building gesture config; the bundled reanimated
+    // mock doesn't export a callable one. A stub returning false is enough under Jest.
     isSharedValue: base.isSharedValue ?? (() => false),
   };
 });

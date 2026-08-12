@@ -43,27 +43,18 @@ export function DraggableFavorites({
   );
 }
 
-function DraggableRow({
-  station,
-  index,
-  count,
-  onOpen,
-  onDelete,
-  onReorder,
-}: {
-  station: Station;
-  index: number;
-  count: number;
-  onOpen: () => void;
-  onDelete: () => void;
-  onReorder: (from: number, to: number) => void;
-}) {
+// Long-press then vertical pan reorders (horizontal is left to the row's own
+// ReanimatedSwipeable via activeOffsetX, so the two gestures don't fight). Returns
+// the composed gesture, the animated lift style, and a dragging flag for the shadow.
+function useReorderGesture(
+  index: number,
+  count: number,
+  onReorder: (from: number, to: number) => void,
+) {
   const ty = useSharedValue(0);
   const active = useSharedValue(false);
   const [dragging, setDragging] = useState(false);
 
-  // Long-press then vertical pan reorders; horizontal is left to the row's own
-  // ReanimatedSwipeable (activeOffsetX), so the two gestures don't fight.
   const drag = Gesture.Pan()
     .activateAfterLongPress(250)
     .activeOffsetY([-10, 10])
@@ -88,6 +79,29 @@ function DraggableRow({
     zIndex: active.value ? 10 : 0,
   }));
 
+  return { drag, rowStyle, dragging };
+}
+
+function DraggableRow({
+  station,
+  index,
+  count,
+  onOpen,
+  onDelete,
+  onReorder,
+}: {
+  station: Station;
+  index: number;
+  count: number;
+  onOpen: () => void;
+  onDelete: () => void;
+  onReorder: (from: number, to: number) => void;
+}) {
+  const { drag, rowStyle, dragging } = useReorderGesture(
+    index,
+    count,
+    onReorder,
+  );
   return (
     <GestureDetector gesture={drag}>
       <Animated.View style={[rowStyle, dragging && styles.lifted]}>

@@ -91,7 +91,7 @@ test('AC 006-9: search filters, + adds a favorite (persists), tap previews + nav
   await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Teraz'));
 });
 
-test('AC 006-8: favorites render live, tap navigates, ✕ persists — and deleting one does NOT refetch the others', async () => {
+test('AC 006-8 / AC 008-4: favorites render live, tap navigates, ✕ persists — and deleting one does NOT refetch the others (through DraggableFavorites)', async () => {
   mockNavigate.mockClear();
   const store = makeStore([w, g]);
   // Count getCurrentReading calls per place to guard the stale-object refetch bug.
