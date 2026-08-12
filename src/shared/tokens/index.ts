@@ -2,6 +2,7 @@ export const colors = {
   base: '#07090d',
   accent: '#8fb7ff',
   success: '#34c759',
+  danger: '#ff453a',
   text: {
     primary: 'rgba(255,255,255,1)',
     high: 'rgba(255,255,255,0.92)',
