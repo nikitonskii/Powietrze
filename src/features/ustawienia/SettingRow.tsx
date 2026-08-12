@@ -20,9 +20,9 @@ export function SettingRow({
     <View testID={`setting-${keyName}`} style={styles.row}>
       <View style={styles.left}>
         <View style={styles.titleLine}>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={rowHeaderStyles.title}>{title}</Text>
           {soon && (
-            <Text testID={`wkrotce-${keyName}`} style={styles.soon}>
+            <Text testID={`wkrotce-${keyName}`} style={rowHeaderStyles.soon}>
               Wkrótce
             </Text>
           )}
@@ -34,6 +34,13 @@ export function SettingRow({
   );
 }
 
+// Shared with the stacked-row header (title + optional "Wkrótce" tag) in
+// UstawieniaScreen.tsx, so both row shapes render identical typography.
+export const rowHeaderStyles = StyleSheet.create({
+  title: { fontSize: 15, color: colors.text.primary },
+  soon: { fontSize: 11, color: colors.text.faint },
+});
+
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
@@ -44,8 +51,6 @@ const styles = StyleSheet.create({
   } as ViewStyle,
   left: { flex: 1, marginRight: 12 },
   titleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  title: { fontSize: 15, color: colors.text.primary },
-  soon: { fontSize: 11, color: colors.text.faint },
   subtitle: { fontSize: 12, color: colors.text.inactive, marginTop: 2 },
   value: { fontSize: 15, color: colors.text.dim },
 });

@@ -5,8 +5,39 @@ import { Toggle } from '../../shared/ui/Toggle';
 import { SegmentedControl } from '../../shared/ui/SegmentedControl';
 import { ThresholdSlider } from '../../shared/ui/ThresholdSlider';
 import { colors } from '../../shared/tokens';
-import { useSettings } from '../../shared/settings';
-import { SettingRow } from './SettingRow';
+import { useSettings, type SettingsApi } from '../../shared/settings';
+import { SettingRow, rowHeaderStyles } from './SettingRow';
+
+type GroupProps = Pick<SettingsApi, 'settings' | 'set'>;
+
+// A horizontal row wired to a boolean setting via a Toggle.
+function ToggleRow({
+  keyName,
+  title,
+  subtitle,
+  testID,
+  value,
+  onValueChange,
+}: {
+  keyName: string;
+  title: string;
+  subtitle?: string;
+  testID: string;
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+}) {
+  return (
+    <SettingRow
+      keyName={keyName}
+      title={title}
+      subtitle={subtitle}
+      soon
+      trailing={
+        <Toggle testID={testID} value={value} onValueChange={onValueChange} />
+      }
+    />
+  );
+}
 
 // A row whose control sits below its title (segmented control / slider).
 function StackedRow({
@@ -23,15 +54,106 @@ function StackedRow({
   return (
     <View testID={`setting-${keyName}`} style={styles.stacked}>
       <View style={styles.titleLine}>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={rowHeaderStyles.title}>{title}</Text>
         {soon && (
-          <Text testID={`wkrotce-${keyName}`} style={styles.soon}>
+          <Text testID={`wkrotce-${keyName}`} style={rowHeaderStyles.soon}>
             Wkrótce
           </Text>
         )}
       </View>
       {children}
     </View>
+  );
+}
+
+function LokalizacjaGroup({ settings, set }: GroupProps) {
+  return (
+    <SettingsGroup label="LOKALIZACJA">
+      <ToggleRow
+        keyName="loc"
+        title="Użyj mojej lokalizacji"
+        testID="toggle-loc"
+        value={settings.loc}
+        onValueChange={v => set('loc', v)}
+      />
+      <StackedRow keyName="precision" title="Dokładność" soon>
+        <SegmentedControl
+          testID="seg-precision"
+          options={['Przybliżona', 'Dokładna'] as const}
+          value={settings.precision}
+          onChange={v => set('precision', v)}
+        />
+      </StackedRow>
+    </SettingsGroup>
+  );
+}
+
+function PowiadomieniaGroup({ settings, set }: GroupProps) {
+  return (
+    <SettingsGroup label="POWIADOMIENIA">
+      <ToggleRow
+        keyName="alert"
+        title="Alert smogowy"
+        testID="toggle-alert"
+        value={settings.alert}
+        onValueChange={v => set('alert', v)}
+      />
+      <StackedRow keyName="threshold" title="Próg alertu" soon>
+        <ThresholdSlider
+          testID="slider-threshold"
+          value={settings.threshold}
+          onChange={v => set('threshold', v)}
+        />
+      </StackedRow>
+      <SettingRow
+        keyName="quiet"
+        title="Godziny ciszy"
+        soon
+        value="22:00 – 07:00"
+      />
+      <ToggleRow
+        keyName="morning"
+        title="Poranne podsumowanie"
+        subtitle="07:30"
+        testID="toggle-morning"
+        value={settings.morning}
+        onValueChange={v => set('morning', v)}
+      />
+    </SettingsGroup>
+  );
+}
+
+function WygladGroup({ settings, set }: GroupProps) {
+  return (
+    <SettingsGroup label="WIDŻET I WYGLĄD">
+      <SettingRow
+        keyName="widget"
+        title="Stacja widżetu"
+        soon
+        value="Automatyczna"
+      />
+      <StackedRow keyName="scale" title="Skala indeksu" soon>
+        <SegmentedControl
+          testID="seg-scale"
+          options={['CAQI', 'US AQI', 'µg/m³'] as const}
+          value={settings.scale}
+          onChange={v => set('scale', v)}
+        />
+      </StackedRow>
+    </SettingsGroup>
+  );
+}
+
+function DaneGroup() {
+  return (
+    <SettingsGroup label="DANE">
+      <SettingRow keyName="source" title="Źródło" value="GIOŚ" />
+      <SettingRow
+        keyName="refresh"
+        title="Częstotliwość odświeżania"
+        value="15 min"
+      />
+    </SettingsGroup>
   );
 }
 
@@ -44,97 +166,10 @@ export function UstawieniaScreen() {
       contentContainerStyle={styles.content}
     >
       <Text style={styles.header}>Ustawienia</Text>
-
-      <SettingsGroup label="LOKALIZACJA">
-        <SettingRow
-          keyName="loc"
-          title="Użyj mojej lokalizacji"
-          soon
-          trailing={
-            <Toggle
-              testID="toggle-loc"
-              value={settings.loc}
-              onValueChange={v => set('loc', v)}
-            />
-          }
-        />
-        <StackedRow keyName="precision" title="Dokładność" soon>
-          <SegmentedControl
-            testID="seg-precision"
-            options={['Przybliżona', 'Dokładna'] as const}
-            value={settings.precision}
-            onChange={v => set('precision', v)}
-          />
-        </StackedRow>
-      </SettingsGroup>
-
-      <SettingsGroup label="POWIADOMIENIA">
-        <SettingRow
-          keyName="alert"
-          title="Alert smogowy"
-          soon
-          trailing={
-            <Toggle
-              testID="toggle-alert"
-              value={settings.alert}
-              onValueChange={v => set('alert', v)}
-            />
-          }
-        />
-        <StackedRow keyName="threshold" title="Próg alertu" soon>
-          <ThresholdSlider
-            testID="slider-threshold"
-            value={settings.threshold}
-            onChange={v => set('threshold', v)}
-          />
-        </StackedRow>
-        <SettingRow
-          keyName="quiet"
-          title="Godziny ciszy"
-          soon
-          value="22:00 – 07:00"
-        />
-        <SettingRow
-          keyName="morning"
-          title="Poranne podsumowanie"
-          subtitle="07:30"
-          soon
-          trailing={
-            <Toggle
-              testID="toggle-morning"
-              value={settings.morning}
-              onValueChange={v => set('morning', v)}
-            />
-          }
-        />
-      </SettingsGroup>
-
-      <SettingsGroup label="WIDŻET I WYGLĄD">
-        <SettingRow
-          keyName="widget"
-          title="Stacja widżetu"
-          soon
-          value="Automatyczna"
-        />
-        <StackedRow keyName="scale" title="Skala indeksu" soon>
-          <SegmentedControl
-            testID="seg-scale"
-            options={['CAQI', 'US AQI', 'µg/m³'] as const}
-            value={settings.scale}
-            onChange={v => set('scale', v)}
-          />
-        </StackedRow>
-      </SettingsGroup>
-
-      <SettingsGroup label="DANE">
-        <SettingRow keyName="source" title="Źródło" value="GIOŚ" />
-        <SettingRow
-          keyName="refresh"
-          title="Częstotliwość odświeżania"
-          value="15 min"
-        />
-      </SettingsGroup>
-
+      <LokalizacjaGroup settings={settings} set={set} />
+      <PowiadomieniaGroup settings={settings} set={set} />
+      <WygladGroup settings={settings} set={set} />
+      <DaneGroup />
       <Text style={styles.footer}>Dane: GIOŚ · Open-Meteo</Text>
       <Text style={styles.footer}>
         Bez konta. Ulubione zostają na telefonie.
@@ -154,8 +189,6 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
-  title: { fontSize: 15, color: colors.text.primary },
-  soon: { fontSize: 11, color: colors.text.faint },
   footer: {
     fontSize: 11.5,
     color: colors.text.footer,
