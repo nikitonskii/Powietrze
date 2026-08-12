@@ -8,12 +8,16 @@ export type ReadingState =
   | { status: 'ready'; reading: Reading }
   | { status: 'stale'; reading?: Reading };
 
-// Fetches once when the place changes. On rejection → 'stale', keeping the last
-// reading if any. Callers pass a STABLE place identity (LOCATION_PLACE, or a
-// station object held in state/props) so the effect doesn't refire each render.
+// Fetches once when the place's IDENTITY changes. On rejection → 'stale',
+// keeping the last reading if any. The effect is keyed on `placeKey` (a
+// primitive) rather than the `place` object, so a caller passing a fresh
+// `{kind:'station',station}` literal every render (e.g. each favorites-list
+// row) does NOT refire the fetch on unrelated re-renders.
 export function usePlaceReading(place: ActivePlace): ReadingState {
   const sourceForPlace = useSourceForPlace();
   const [state, setState] = useState<ReadingState>({ status: 'loading' });
+  const placeKey =
+    place.kind === 'location' ? 'location' : `station:${place.station.id}`;
   useEffect(() => {
     let active = true;
     sourceForPlace(place)
@@ -27,6 +31,7 @@ export function usePlaceReading(place: ActivePlace): ReadingState {
     return () => {
       active = false;
     };
-  }, [sourceForPlace, place]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
+  }, [sourceForPlace, placeKey]);
   return state;
 }

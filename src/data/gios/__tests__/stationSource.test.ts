@@ -4,7 +4,7 @@ import getData from '../__fixtures__/getData2752.json';
 import { createStationSource } from '../source';
 import type { Station } from '../../../core/geo';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped fixture JSON
+// `any`: untyped GIOŚ fixture JSON, read positionally only in this test setup.
 const warsaw: Station = (realStations as any)['Lista stacji pomiarowych']
   .map((e: any) => ({
     id: e['Identyfikator stacji'],

@@ -17,7 +17,7 @@ import type { FavoritesStore } from '../../../core/places';
 import type { Station } from '../../../core/geo';
 import type { Reading } from '../../../core/air';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped fixture JSON
+// `any`: untyped GIOŚ fixture JSON, read positionally only in this test setup.
 const S: Station[] = (realStations as any)['Lista stacji pomiarowych'].map(
   (e: any) => ({
     id: e['Identyfikator stacji'],
@@ -43,11 +43,16 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
-function makeStore(): FavoritesStore & { saved: Station[][] } {
+const w = S.find(s => s.id === 530)!; // Warszawa
+const g = S.find(s => s.id === 706)!; // Gdańsk
+
+function makeStore(
+  initial: Station[] = [],
+): FavoritesStore & { saved: Station[][] } {
   const saved: Station[][] = [];
   return {
     saved,
-    load: async () => [],
+    load: async () => initial,
     save: async l => {
       saved.push(l);
     },
@@ -82,4 +87,44 @@ test('AC 006-9: search filters, + adds a favorite (persists), tap previews + nav
   expect(store.saved[0].map(s => s.id)).toEqual([400]);
   fireEvent.press(screen.getByTestId('result-400'));
   expect(mockNavigate).toHaveBeenCalledWith('Teraz');
+});
+
+test('AC 006-8: favorites render live, tap navigates, ✕ persists — and deleting one does NOT refetch the others', async () => {
+  mockNavigate.mockClear();
+  const store = makeStore([w, g]);
+  // Count getCurrentReading calls per place to guard the stale-object refetch bug.
+  const calls: Record<string, number> = {};
+  const countingSfp: SourceForPlace = place => ({
+    getCurrentReading: () => {
+      const key = place.kind === 'location' ? 'loc' : `s${place.station.id}`;
+      calls[key] = (calls[key] ?? 0) + 1;
+      return Promise.resolve(anyReading);
+    },
+  });
+  await render(
+    <StationsProvider stations={S}>
+      <PlaceSourceProvider sourceForPlace={countingSfp}>
+        <FavoritesProvider store={store}>
+          <ActivePlaceProvider>
+            <MiejscaScreen />
+          </ActivePlaceProvider>
+        </FavoritesProvider>
+      </PlaceSourceProvider>
+    </StationsProvider>,
+  );
+  // one row per favorite (each with a ✕ delete affordance)
+  expect(await screen.findByTestId('delete-Warszawa')).toBeTruthy();
+  expect(screen.getByTestId('delete-Gdańsk')).toBeTruthy();
+  await waitFor(() => expect(calls.s530).toBe(1));
+
+  // ✕ on Gdańsk removes it + persists — and must NOT refetch Warszawa (bug guard,
+  // asserted BEFORE any tap so the active-place fetch doesn't pollute the count).
+  fireEvent.press(screen.getByTestId('delete-Gdańsk'));
+  await waitFor(() => expect(screen.queryByTestId('delete-Gdańsk')).toBeNull());
+  expect(store.saved.at(-1)!.map(s => s.id)).toEqual([530]);
+  expect(calls.s530).toBe(1);
+
+  // tapping the remaining favorite row navigates to Teraz
+  fireEvent.press(screen.getByText('Warszawa'));
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Teraz'));
 });

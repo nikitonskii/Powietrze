@@ -27,6 +27,14 @@ const wrap = (sourceForPlace: SourceForPlace) =>
     </PlaceSourceProvider>,
   );
 
+test('AC 006-6/6b: starts in loading until the first reading resolves', async () => {
+  // A source that never resolves keeps the hook in its initial loading state.
+  await wrap(() => ({
+    getCurrentReading: () => new Promise<Reading>(() => {}),
+  }));
+  expect(screen.getByText('loading:-')).toBeTruthy();
+});
+
 test('AC 006-6b: resolves to ready and exposes the reading', async () => {
   await wrap(() => ({ getCurrentReading: () => Promise.resolve(READING) }));
   await waitFor(() => expect(screen.getByText('ready:42')).toBeTruthy());

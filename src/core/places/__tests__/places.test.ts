@@ -8,7 +8,7 @@ import {
 } from '../index';
 import type { Station } from '../../geo';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped fixture JSON
+// `any`: untyped GIOŚ fixture JSON, read positionally only in this test setup.
 const S: Station[] = (realStations as any)['Lista stacji pomiarowych'].map(
   (e: any) => ({
     id: e['Identyfikator stacji'],

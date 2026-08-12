@@ -12,7 +12,10 @@ import {
   StationsProvider,
 } from '../../shared/place';
 import type { FavoritesStore } from '../../core/places';
-import { fakeAirSource } from '../../shared/test/fakeAirSource';
+import {
+  fakeAirSource,
+  pendingAirSource,
+} from '../../shared/test/fakeAirSource';
 import { scene } from '../../core/scene';
 import { colors } from '../../shared/tokens';
 import { colorOf } from '../../shared/test/colorOf';
@@ -70,5 +73,23 @@ test('AC 006-10: Teraz tab tint comes from the active reading index, not MOCK_PL
   await screen.findByTestId('screen-miejsca');
   expect(
     colorOf(within(screen.getByTestId('tab-Miejsca')).getByText('Miejsca')),
+  ).toBe(colors.accent);
+});
+
+test('AC 006-10: Teraz tab tint is the neutral accent while the reading is loading', async () => {
+  await render(
+    <StationsProvider stations={[]}>
+      <PlaceSourceProvider sourceForPlace={() => pendingAirSource()}>
+        <FavoritesProvider store={emptyStore}>
+          <ActivePlaceProvider>
+            <AppNavigator />
+          </ActivePlaceProvider>
+        </FavoritesProvider>
+      </PlaceSourceProvider>
+    </StationsProvider>,
+  );
+  await screen.findByTestId('teraz-loading'); // no reading yet
+  expect(
+    colorOf(within(screen.getByTestId('tab-Teraz')).getByText('Teraz')),
   ).toBe(colors.accent);
 });
