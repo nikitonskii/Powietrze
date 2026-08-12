@@ -82,11 +82,12 @@ test('AC 006-9: search filters, + adds a favorite (persists), tap previews + nav
   await renderScreen(store);
   fireEvent.changeText(screen.getByTestId('search-input'), 'krak');
   expect(await screen.findByText('Kraków')).toBeTruthy();
+  await screen.findByText('4'); // the result's live reading settled (avoids act races)
   fireEvent.press(screen.getByTestId('save-400'));
   await waitFor(() => expect(store.saved).toHaveLength(1));
   expect(store.saved[0].map(s => s.id)).toEqual([400]);
   fireEvent.press(screen.getByTestId('result-400'));
-  expect(mockNavigate).toHaveBeenCalledWith('Teraz');
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Teraz'));
 });
 
 test('AC 006-8: favorites render live, tap navigates, ✕ persists — and deleting one does NOT refetch the others', async () => {
@@ -162,12 +163,19 @@ test('AC 007-4: results capped at 8, only shown rows fetch, preview navigates, s
   );
   fireEvent.changeText(screen.getByTestId('search-input'), 'testowo');
 
-  await waitFor(() => expect(screen.getAllByTestId(/^save-/)).toHaveLength(8));
-  expect(stationReads).toBe(8);
-  await waitFor(() => expect(screen.getByText('brak danych')).toBeTruthy());
+  // Settle EVERYTHING in a single act-wrapped gate before interacting: 8 rows
+  // mounted, 7 readings resolved (index 4), 1 rejected ("brak danych"). One waitFor
+  // absorbs all the concurrent PlaceRow fetch resolutions in one act scope.
+  await waitFor(() => {
+    expect(screen.getAllByTestId(/^save-/)).toHaveLength(8);
+    expect(screen.getAllByText('4')).toHaveLength(7);
+    expect(screen.getByText('brak danych')).toBeTruthy();
+  });
+  expect(stationReads).toBe(8); // cost guard: only the 8 shown rows fetched, not 12
+
   fireEvent.press(screen.getByTestId('result-2'));
-  expect(mockNavigate).toHaveBeenCalledWith('Teraz');
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Teraz'));
   fireEvent.press(screen.getByTestId('save-3'));
-  await waitFor(() => expect(screen.getByTestId('saved-3')).toBeTruthy());
+  await screen.findByTestId('saved-3');
   expect(store.saved.map(l => l.map(s => s.id))).toContainEqual([3]);
 });

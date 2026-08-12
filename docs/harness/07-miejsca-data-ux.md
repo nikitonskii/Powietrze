@@ -43,6 +43,23 @@ The `critic` returned NEEDS-REVISION and caught four real gaps before code:
    noted as borrowed. It also confirmed the `onDelete→trailing` blast radius was exactly
    two test files (no hidden third importer — the M-miejsca "missed Hero.test" lesson held).
 
+## Whole-branch review (post-build)
+Verifier: PASS (all 6 ACs). Reviewer: CHANGES-REQUESTED (two test-quality findings;
+architecture/boundaries/sizes/dead-code all clean) → both addressed:
+1. **PlaceRow AC 007-2 didn't pin loading-vs-stale** — it only checked settled
+   end-states, so a regression to inferring failure from `reading === undefined`
+   (ignoring `status`) wouldn't be caught. → added a pending-promise test asserting the
+   index slot shows **neither** the index nor "brak danych" while `status === 'loading'`.
+2. **"overlapping act()" warnings** in the search tests (8 concurrent result fetches
+   racing `waitFor`). → restructured to settle all fetches in one `waitFor` gate before
+   interacting; **"overlapping act()" is now 0**.
+   *Accepted residual:* plain "not wrapped in act(…)" warnings still surface from the
+   real-timer debounce (`setTimeout`) firing outside `act` and the fetch-in-effect
+   cascade. They don't fail any test and are a *test*-console artifact (the DoD's
+   "no simulator warnings" doesn't cover them). Fully removing them needs fake timers,
+   which the spec forbids for these tests (fake timers deadlock `waitFor`). Candidate
+   future test-infra fix: a test-only debounce-delay override. Documented, not chased.
+
 ## Known limitations (deferred)
 - **Gestures (swipe-to-delete + drag reorder)** → spec 008 (needs
   `react-native-gesture-handler`; reorder via custom Reanimated + gesture-handler).

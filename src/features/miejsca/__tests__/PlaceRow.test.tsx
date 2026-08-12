@@ -3,6 +3,7 @@ import {
   screen,
   waitFor,
   fireEvent,
+  act,
 } from '@testing-library/react-native';
 import { Text as RNText } from 'react-native';
 import { PlaceRow } from '../PlaceRow';
@@ -63,4 +64,23 @@ test('AC 007-2: a failed reading shows "brak danych", not "—"', async () => {
   }));
   await waitFor(() => expect(screen.getByText('brak danych')).toBeTruthy());
   expect(screen.queryByText('—')).toBeNull();
+});
+
+test('AC 007-2: while loading (pending source), shows neither the index nor "brak danych"', async () => {
+  // Controllable promise: stays pending so status === 'loading' (reading undefined).
+  let resolveReading: (r: Reading) => void = () => {};
+  const pending = new Promise<Reading>(res => {
+    resolveReading = res;
+  });
+  await wrap(() => ({ getCurrentReading: () => pending }));
+  // status is 'loading' with no reading → the tri-state renders NOTHING, proving
+  // failure is read from status === 'stale', not from reading === undefined
+  // (which also matches loading). A regression to the old bug would show "brak danych" here.
+  expect(screen.queryByText('brak danych')).toBeNull();
+  expect(screen.queryByText('42')).toBeNull();
+  // resolving flips to the index (it wasn't stuck)
+  await act(async () => {
+    resolveReading(reading);
+  });
+  await waitFor(() => expect(screen.getByText('42')).toBeTruthy());
 });
