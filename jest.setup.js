@@ -11,6 +11,29 @@ jest.mock('@react-native-community/geolocation', () => ({
   default: { getCurrentPosition: jest.fn() },
 }));
 
+// AsyncStorage: a small in-memory stub (getItem/setItem/removeItem/clear). The
+// package's shipped v3 mock hides behind an ESM `/jest` exports subpath that
+// Jest's CJS transform can't load; this Map-backed stub matches the classic API
+// the favorites adapter uses. One shared instance per test file; clear() resets.
+jest.mock('@react-native-async-storage/async-storage', () => {
+  let store = {};
+  return {
+    __esModule: true,
+    default: {
+      getItem: jest.fn(async k => (k in store ? store[k] : null)),
+      setItem: jest.fn(async (k, v) => {
+        store[k] = v;
+      }),
+      removeItem: jest.fn(async k => {
+        delete store[k];
+      }),
+      clear: jest.fn(async () => {
+        store = {};
+      }),
+    },
+  };
+});
+
 // Official jest mock: also swaps SafeAreaProvider for a version that
 // renders children synchronously via context (the real SafeAreaProvider
 // defers children until a native onLayout event, which never fires under
