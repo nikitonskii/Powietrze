@@ -36,7 +36,9 @@ export function useDebouncedValue<T>(value: T, delayMs: number): T;
 // Returns the latest value, but only after `value` has been stable for delayMs.
 ```
 
-`src/shared/tokens` — add `colors.success = '#34c759'` (the design's toggle-on green).
+`src/shared/tokens` — add `colors.success = '#34c759'`. (This green is the design's
+toggle-on color, specified for the Lokalizacja toggle; we **borrow** it as the generic
+success/`✓` color — the design doesn't mandate a color for the Miejsca `+` control.)
 
 `src/features/miejsca/constants.ts` (new): `export const MAX_VISIBLE_RESULTS = 8;`
 
@@ -48,11 +50,17 @@ export function PlaceRow(props: {
   subtitle: string;
   onPress: () => void;
   trailing?: React.ReactNode; // right-side control: the ✕ for favorites, +/✓ for results
+  testID?: string;            // on the row Pressable, so a specific row is targetable (e.g. result-<id>)
 }): JSX.Element;
 ```
-The index slot renders: the live index when a reading resolved; a small dim
-**"brak danych"** when the reading failed (status `stale`, no reading); nothing while
-still `loading`.
+`PlaceRow` consumes **`{ status, reading }`** from `usePlaceReading` (not just
+`reading`). Index-slot rule (total, so failure is never confused with loading):
+- a `reading` is present → the live **index** (the last good value, even if `status`
+  is `stale`);
+- no reading and `status === 'loading'` → **nothing** (brief);
+- no reading and `status === 'stale'` → a small dim **"brak danych"**.
+
+It must NOT infer failure from `reading === undefined` alone — that also matches loading.
 
 `src/features/miejsca/SaveButton.tsx` (new):
 ```ts
@@ -64,7 +72,8 @@ export function SaveButton(props: { station: Station }): JSX.Element;
 
 `src/features/miejsca/MiejscaScreen.tsx` (changed): debounces the query
 (`useDebouncedValue(query, 300)`), caps results to `MAX_VISIBLE_RESULTS`, renders each
-**result via `PlaceRow`** (so it shows a live index) with `trailing={<SaveButton station={s} />}`,
+**result via `PlaceRow`** (so it shows a live index) with `testID={`result-${s.id}`}`
+(so a specific result row is pressable for preview) and `trailing={<SaveButton station={s} />}`,
 and each **favorite via `PlaceRow`** with a `trailing` delete control (a `Pressable`
 with the ✕, testID `delete-<city>` — unchanged from spec 006).
 
@@ -72,30 +81,44 @@ with the ✕, testID `delete-<city>` — unchanged from spec 006).
 
 - **AC 007-1** — `useDebouncedValue(value, delayMs)` (jest fake timers): returns the
   initial value immediately; after `value` changes it keeps returning the OLD value until
-  `delayMs` has elapsed, then returns the new one; a change before `delayMs` elapses
-  resets the timer (only the latest value is emitted). Pins: initial → immediate;
-  `advanceTimersByTime(delayMs - 1)` → still old; `+1` more → new.
-- **AC 007-2** — `PlaceRow` (RNTL, fake `sourceForPlace`): a resolving source renders the
-  live index and the `trailing` node; a **rejecting** source renders **"brak danych"**
-  (not "—") in the index slot; tapping the row fires `onPress`.
+  `delayMs` has elapsed, then returns the new one. Pins: initial → immediate;
+  `advanceTimersByTime(delayMs - 1)` → still old; `+1` more → new. **Reset-on-change**
+  (pin the concrete sequence): value A (settled) → B, advance `< delayMs`, → C, advance
+  `delayMs` → returns **C**, and **B is never observed**. The pending timer is **cleared
+  on unmount** (unmount mid-debounce → no post-unmount state update / no React warning).
+- **AC 007-2** — `PlaceRow` (RNTL, fake `sourceForPlace`; PlaceRow reads `{status, reading}`):
+  a resolving source renders the live **index** and the `trailing` node; a **rejecting**
+  source renders **"brak danych"** (not "—") in the index slot — proving failure is read
+  from `status === 'stale'`, not from `reading === undefined` (which also matches loading);
+  tapping the row fires `onPress`.
 - **AC 007-3** — `SaveButton` (RNTL, `FavoritesProvider` + fake store): for a station NOT
   in favorites, renders `+` (testID `save-<id>`); pressing it calls the store's `save`
   and the button flips to `✓` (testID `saved-<id>`). For a station ALREADY in favorites,
   renders `✓` from the start and pressing it does nothing (no extra save).
-- **AC 007-4** — `MiejscaScreen` search (RNTL, real `useDebouncedValue`, fake source):
-  entering a query that matches **> 8** stations (synthetic `StationsProvider` list)
-  renders **at most `MAX_VISIBLE_RESULTS` (8)** result rows after the debounce settles
-  (`await waitFor`), each showing a live index and a `SaveButton`; a result whose source
-  **rejects** shows "brak danych". Pressing a result's `save-<id>` adds it (store `save`
-  called) and its control becomes `saved-<id>`.
+- **AC 007-4** — `MiejscaScreen` search (RNTL, real timers + `await waitFor`, a **counting**
+  fake `sourceForPlace`; the test must **NOT** enable fake timers — fake timers deadlock
+  `waitFor`): entering a query that matches **> 8** stations (synthetic `StationsProvider`
+  list) renders **at most `MAX_VISIBLE_RESULTS` (8)** result rows after the debounce
+  settles, each showing a live index and a `SaveButton`.
+  - **Cost guard (the core claim):** the counting source proves exactly
+    `MAX_VISIBLE_RESULTS` reads fire for the shown results — **not one per match** (not 30+).
+  - **Preview (carried over from spec-006 AC 006-9):** pressing a result **row**
+    (`result-<id>`, not the `+`) calls `setActive({kind:'station', station})` and
+    `navigate('Teraz')`.
+  - **Save:** pressing a result's `save-<id>` adds it (store `save` called) and its
+    control becomes `saved-<id>`.
+  - a result whose source **rejects** shows "brak danych".
 - **AC 007-5** — `MiejscaScreen` favorites branch still works after the `PlaceRow`
   refactor (regression, must stay green): the pinned "Twoja lokalizacja" row + empty
   hint (spec 006 AC 006-8), a favorite row's ✕ (`delete-<city>`) removing + persisting,
   and deleting one favorite NOT refetching the others (the spec-006 bug guard) all hold.
 - **AC 007-6** *(manual)* — On the simulator: search "Warsz" → results show live indices,
   with data-less stations reading "brak danych"; tap `+` on a station with data → it
-  flips to `✓` and appears in the favorites list with its live value. *(Screenshots;
-  interactive taps are offered to the human — same headless-tap limit as prior milestones.)*
+  flips to `✓` **and stays on Miejsca** (the `+` nested in the row must NOT trigger the
+  row's preview-navigate); the saved station then appears in the favorites list with its
+  live value; the ✕ likewise removes without triggering preview. *(Screenshots;
+  interactive taps are offered to the human — same headless-tap limit as prior milestones.
+  This gesture-bubbling behavior can't be caught by RNTL unit tests, so it lives here.)*
 
 ## Resolved ambiguities
 
