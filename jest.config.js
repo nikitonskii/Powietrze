@@ -21,6 +21,6 @@ module.exports = {
     },
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@react-native|react-native|react-native-linear-gradient|@react-navigation|react-native-screens|react-native-safe-area-context|@shopify/react-native-skia|react-native-reanimated|react-native-worklets)/)',
+    'node_modules/(?!(@react-native|react-native|react-native-linear-gradient|@react-navigation|react-native-screens|react-native-safe-area-context|@shopify/react-native-skia|react-native-reanimated|react-native-worklets|react-native-gesture-handler)/)',
   ],
 };

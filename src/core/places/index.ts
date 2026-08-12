@@ -45,3 +45,21 @@ export interface FavoritesStore {
   load(): Promise<Station[]>;
   save(list: Station[]): Promise<void>;
 }
+
+// Moves list[from] to index `to`. Returns the SAME reference on a no-op (from === to)
+// or any out-of-bounds index, so callers can skip a redundant persist.
+export function moveItem<T>(list: T[], from: number, to: number): T[] {
+  if (
+    from === to ||
+    from < 0 ||
+    to < 0 ||
+    from >= list.length ||
+    to >= list.length
+  ) {
+    return list;
+  }
+  const next = list.slice();
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+}

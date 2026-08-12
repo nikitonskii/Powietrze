@@ -4,6 +4,7 @@ import {
   addFavorite,
   removeFavorite,
   hasFavorite,
+  moveItem,
   MAX_RESULTS,
 } from '../index';
 import type { Station } from '../../geo';
@@ -47,4 +48,16 @@ test('AC 006-2: favorites ops keyed by station id', () => {
   expect(removeFavorite([k, w], 400).map(s => s.id)).toEqual([530]);
   expect(hasFavorite([k], 400)).toBe(true);
   expect(hasFavorite([], 400)).toBe(false);
+});
+
+test('AC 008-1: moveItem moves an item and is a no-op (same ref) on no-op/OOB', () => {
+  expect(moveItem(['a', 'b', 'c'], 0, 2)).toEqual(['b', 'c', 'a']);
+  expect(moveItem(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b']);
+  expect(moveItem(['a', 'b', 'c'], 1, 2)).toEqual(['a', 'c', 'b']);
+  const l = ['a', 'b', 'c'];
+  expect(moveItem(l, 1, 1)).toBe(l); // no-op → same reference
+  expect(moveItem(l, -1, 0)).toBe(l); // OOB from<0
+  expect(moveItem(l, 3, 0)).toBe(l); // OOB from>=length
+  expect(moveItem(l, 0, -1)).toBe(l); // OOB to<0
+  expect(moveItem(l, 0, 3)).toBe(l); // OOB to>=length
 });

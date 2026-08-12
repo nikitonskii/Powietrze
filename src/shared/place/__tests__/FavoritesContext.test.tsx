@@ -68,3 +68,52 @@ test('AC 006-5: loads from store, add/remove persist, duplicate add is a no-op',
   expect(store.saved).toHaveLength(2);
   expect(store.saved[1]).toEqual([]);
 });
+
+const w2: Station = {
+  id: 530,
+  name: 'Warszawa, Al. Niepodległości',
+  city: 'Warszawa',
+  lat: 0,
+  lon: 0,
+};
+const g2: Station = {
+  id: 706,
+  name: 'Gdańsk, ul. Powstańców Wielkopolskich',
+  city: 'Gdańsk',
+  lat: 0,
+  lon: 0,
+};
+
+function ReorderProbe() {
+  const { favorites, reorder } = useFavorites();
+  return (
+    <>
+      <Text>{favorites.map(f => f.id).join(',') || 'empty'}</Text>
+      <Pressable testID="move-0-2" onPress={() => reorder(0, 2)}>
+        <Text>m02</Text>
+      </Pressable>
+      <Pressable testID="noop" onPress={() => reorder(1, 1)}>
+        <Text>noop</Text>
+      </Pressable>
+    </>
+  );
+}
+
+test('AC 008-2: reorder moves + persists; no-op does not persist', async () => {
+  const store = makeStore([k, w2, g2]);
+  render(
+    <FavoritesProvider store={store}>
+      <ReorderProbe />
+    </FavoritesProvider>,
+  );
+  await waitFor(() => expect(screen.getByText('400,530,706')).toBeTruthy());
+
+  fireEvent.press(screen.getByTestId('move-0-2'));
+  await waitFor(() => expect(screen.getByText('530,706,400')).toBeTruthy());
+  expect(store.saved.at(-1)!.map(s => s.id)).toEqual([530, 706, 400]);
+
+  const savesAfterMove = store.saved.length;
+  fireEvent.press(screen.getByTestId('noop'));
+  await waitFor(() => expect(screen.getByText('530,706,400')).toBeTruthy());
+  expect(store.saved).toHaveLength(savesAfterMove);
+});

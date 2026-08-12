@@ -9,6 +9,7 @@ import {
 import type { Station } from '../../core/geo';
 import {
   addFavorite,
+  moveItem,
   removeFavorite,
   type FavoritesStore,
 } from '../../core/places';
@@ -17,6 +18,7 @@ type FavoritesValue = {
   favorites: Station[];
   add: (s: Station) => void;
   remove: (id: number) => void;
+  reorder: (from: number, to: number) => void;
 };
 
 const Ctx = createContext<FavoritesValue | null>(null);
@@ -51,6 +53,12 @@ export function FavoritesProvider({
         setFavorites(prev => {
           const next = removeFavorite(prev, id);
           store.save(next);
+          return next;
+        }),
+      reorder: (from, to) =>
+        setFavorites(prev => {
+          const next = moveItem(prev, from, to);
+          if (next !== prev) store.save(next); // same ref on no-op → no save
           return next;
         }),
     }),

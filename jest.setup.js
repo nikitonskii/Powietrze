@@ -1,3 +1,25 @@
+import 'react-native-gesture-handler/jestSetup';
+
+// RNGH's ReanimatedSwipeable drives its reveal with Reanimated internals the bundled
+// reanimated mock doesn't fully implement (isSharedValue/useHandler/…). Under Jest we
+// only need to test the row's wiring — that the revealed action renders and its press
+// deletes — so mock the component to render its children + right actions inline. The
+// actual swipe motion is covered by the manual AC.
+jest.mock('react-native-gesture-handler/ReanimatedSwipeable', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    default: ({ children, renderRightActions }) =>
+      React.createElement(
+        View,
+        null,
+        children,
+        renderRightActions ? renderRightActions() : null,
+      ),
+  };
+});
+
 jest.mock('react-native-linear-gradient', () => {
   const { View } = require('react-native');
   return { __esModule: true, default: View };
@@ -56,5 +78,9 @@ jest.mock('react-native-reanimated', () => {
     useFrameCallback:
       base.useFrameCallback ??
       (() => ({ setActive: () => {}, isActive: false })),
+    // RNGH's Gesture/GestureDetector internals (used by DraggableFavorites' Gesture.Pan)
+    // call Reanimated.isSharedValue when building gesture config; the bundled reanimated
+    // mock doesn't export a callable one. A stub returning false is enough under Jest.
+    isSharedValue: base.isSharedValue ?? (() => false),
   };
 });
