@@ -13,6 +13,7 @@ export const colors = {
     bg: 'rgba(10,12,17,0.55)',
     border: 'rgba(255,255,255,0.08)',
   },
+  card: 'rgba(255,255,255,0.06)',
 } as const;
 
 export const type = {
@@ -29,4 +30,7 @@ export const spacing = {
   screenH: 24,
   screenTop: 70,
   screenBottom: 130,
+  rowGap: 12,
+  rowV: 14,
+  cardH: 16,
 } as const;

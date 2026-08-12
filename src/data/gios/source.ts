@@ -41,6 +41,15 @@ export function createGiosSource(
   return { getCurrentReading: () => readStation(KRAKOW_STATION, fetchImpl) };
 }
 
+// A source for one fixed Station — used by Miejsca favorites/preview. Reuses the
+// same per-Station reading builder as the Kraków and nearest paths.
+export function createStationSource(
+  station: Station,
+  fetchImpl: typeof fetch = fetch,
+): AirQualitySource {
+  return { getCurrentReading: () => readStation(station, fetchImpl) };
+}
+
 // Resolves the station nearest the device, falling back to Kraków on ANY
 // failure (permission denied, geo error, stations fetch, or reading error).
 // The Kraków fallback is intentional and total; the __DEV__ log keeps a

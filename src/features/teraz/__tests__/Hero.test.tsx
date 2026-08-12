@@ -1,15 +1,21 @@
 import { render } from '@testing-library/react-native';
-import { Hero } from '../Hero';
-import { MOCK_PLACE } from '../mockData';
+import { Hero, type Place } from '../Hero';
 import { scene } from '../../../core/scene';
 import { colorOf } from '../../../shared/test/colorOf';
 
 const s118 = scene(118);
+const PLACE: Place = {
+  city: 'Kraków',
+  station: 'Aleja Krasińskiego · stacja GIOŚ',
+  freshness: '12 min temu',
+  index: 118,
+};
+const EYEBROW = 'TWOJA LOKALIZACJA';
 
 describe('Hero', () => {
   test('AC-2: location label + city', async () => {
     const { getByText } = await render(
-      <Hero scene={s118} place={MOCK_PLACE} />,
+      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
     );
     expect(getByText('TWOJA LOKALIZACJA')).toBeTruthy();
     expect(getByText('Kraków')).toBeTruthy();
@@ -17,7 +23,7 @@ describe('Hero', () => {
 
   test('AC-3: station + freshness line', async () => {
     const { getByText } = await render(
-      <Hero scene={s118} place={MOCK_PLACE} />,
+      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
     );
     expect(
       getByText('Aleja Krasińskiego · stacja GIOŚ · 12 min temu'),
@@ -26,38 +32,46 @@ describe('Hero', () => {
 
   test('AC-4: index number rendered in key color', async () => {
     const { getByText } = await render(
-      <Hero scene={s118} place={MOCK_PLACE} />,
+      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
     );
     expect(colorOf(getByText('118'))).toBe(s118.key);
   });
 
   test('AC-5: band name reads from scene, in key color', async () => {
     const { getByText, rerender } = await render(
-      <Hero scene={s118} place={MOCK_PLACE} />,
+      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
     );
     expect(colorOf(getByText('Zły'))).toBe(s118.key);
     await rerender(
-      <Hero scene={scene(20)} place={{ ...MOCK_PLACE, index: 20 }} />,
+      <Hero
+        scene={scene(20)}
+        place={{ ...PLACE, index: 20 }}
+        eyebrow={EYEBROW}
+      />,
     );
     expect(getByText('Bardzo dobry')).toBeTruthy();
   });
 
   test('AC-6: pm2.5 line value from scene', async () => {
     const { getByText } = await render(
-      <Hero scene={s118} place={MOCK_PLACE} />,
+      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
     );
     expect(getByText('PM2.5 · 122 µg/m³')).toBeTruthy();
   });
 
   test('AC-7: advice copy from scene', async () => {
     const { getByText, rerender } = await render(
-      <Hero scene={s118} place={MOCK_PLACE} />,
+      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
     );
     expect(
       getByText('Zostań w domu. Zamknij okna, unikaj wysiłku.'),
     ).toBeTruthy();
     await rerender(
-      <Hero scene={scene(20)} place={{ ...MOCK_PLACE, index: 20 }} />,
+      <Hero
+        scene={scene(20)}
+        place={{ ...PLACE, index: 20 }}
+        eyebrow={EYEBROW}
+      />,
     );
     expect(
       getByText('Powietrze czyste. Idealny czas na spacer i sport.'),
@@ -66,12 +80,20 @@ describe('Hero', () => {
 
   test('AC-12: renders at clamped extremes without crashing', async () => {
     const lo = await render(
-      <Hero scene={scene(0)} place={{ ...MOCK_PLACE, index: 0 }} />,
+      <Hero
+        scene={scene(0)}
+        place={{ ...PLACE, index: 0 }}
+        eyebrow={EYEBROW}
+      />,
     );
     expect(lo.getByText('0')).toBeTruthy();
     expect(lo.getByText('Bardzo dobry')).toBeTruthy();
     const hi = await render(
-      <Hero scene={scene(200)} place={{ ...MOCK_PLACE, index: 200 }} />,
+      <Hero
+        scene={scene(200)}
+        place={{ ...PLACE, index: 200 }}
+        eyebrow={EYEBROW}
+      />,
     );
     expect(hi.getByText('200')).toBeTruthy();
     expect(hi.getByText('Bardzo zły')).toBeTruthy();

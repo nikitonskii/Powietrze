@@ -2,7 +2,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { scene } from '../core/scene';
 import { colors } from '../shared/tokens';
-import { MOCK_PLACE } from '../features/teraz/mockData';
+import { useActivePlace } from '../shared/place';
 import { TerazScreen } from '../features/teraz/TerazScreen';
 import { MiejscaScreen } from '../features/miejsca/MiejscaScreen';
 import { UstawieniaScreen } from '../features/ustawienia/UstawieniaScreen';
@@ -10,14 +10,15 @@ import { makeTabBar } from './TabBar';
 
 const Tab = createBottomTabNavigator();
 
-const activeTints = {
-  Teraz: scene(MOCK_PLACE.index).key,
-  Miejsca: colors.accent,
-  Ustawienia: colors.accent,
-};
-const tabBar = makeTabBar(activeTints);
-
 export function AppNavigator() {
+  const { reading } = useActivePlace();
+  // Teraz tab tint tracks the active reading's index; neutral accent while loading.
+  const terazTint = reading ? scene(reading.index).key : colors.accent;
+  const tabBar = makeTabBar({
+    Teraz: terazTint,
+    Miejsca: colors.accent,
+    Ustawienia: colors.accent,
+  });
   return (
     <NavigationContainer>
       <Tab.Navigator

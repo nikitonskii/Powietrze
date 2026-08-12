@@ -1,26 +1,55 @@
+import { useEffect, useState } from 'react';
 import { StatusBar } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import type { AirQualitySource } from './src/core/air';
-import { createNearestStationSource } from './src/data/gios';
+import {
+  createNearestStationSource,
+  createStationSource,
+  fetchStations,
+} from './src/data/gios';
 import { createDeviceGeolocation } from './src/data/location';
-import { AirSourceProvider } from './src/features/teraz/AirSourceContext';
+import { createAsyncStorageFavoritesStore } from './src/data/favorites';
+import type { ActivePlace } from './src/core/places';
+import type { Station } from './src/core/geo';
+import {
+  PlaceSourceProvider,
+  StationsProvider,
+  FavoritesProvider,
+  ActivePlaceProvider,
+} from './src/shared/place';
 import { AppNavigator } from './src/app/AppNavigator';
 
-// One stable instance across renders. Nearest station by device location,
-// falling back to Kraków on any failure.
-const defaultSource = createNearestStationSource(
-  createDeviceGeolocation(),
-  fetch,
-);
+// Data-layer instances built once and injected (features never call data directly).
+const nearest = createNearestStationSource(createDeviceGeolocation(), fetch);
+const sourceForPlace = (p: ActivePlace) =>
+  p.kind === 'location' ? nearest : createStationSource(p.station, fetch);
+const favoritesStore = createAsyncStorageFavoritesStore();
 
-function App({ source = defaultSource }: { source?: AirQualitySource }) {
+function App() {
+  // Fetch the station list once for search (features never call data directly).
+  const [stations, setStations] = useState<Station[]>([]);
+  useEffect(() => {
+    let on = true;
+    fetchStations(fetch)
+      .then(list => on && setStations(list))
+      .catch(() => {});
+    return () => {
+      on = false;
+    };
+  }, []);
+
   return (
-    <AirSourceProvider source={source}>
-      <SafeAreaProvider>
-        <StatusBar barStyle="light-content" />
-        <AppNavigator />
-      </SafeAreaProvider>
-    </AirSourceProvider>
+    <StationsProvider stations={stations}>
+      <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+        <FavoritesProvider store={favoritesStore}>
+          <ActivePlaceProvider>
+            <SafeAreaProvider>
+              <StatusBar barStyle="light-content" />
+              <AppNavigator />
+            </SafeAreaProvider>
+          </ActivePlaceProvider>
+        </FavoritesProvider>
+      </PlaceSourceProvider>
+    </StationsProvider>
   );
 }
 
