@@ -93,3 +93,22 @@ test('AC 006-10: Teraz tab tint is the neutral accent while the reading is loadi
     colorOf(within(screen.getByTestId('tab-Teraz')).getByText('Teraz')),
   ).toBe(colors.accent);
 });
+
+test('the Teraz tab keeps a dimmed live air tint when unfocused (glanceable from any tab)', async () => {
+  await renderNav();
+  await screen.findByText('118');
+  const key = scene(118).key; // fakeAirSource() reads index 118
+  // switch to Miejsca so Teraz is unfocused
+  fireEvent.press(screen.getByTestId('tab-Miejsca'));
+  await screen.findByTestId('screen-miejsca');
+  // unfocused Teraz still shows the live air color, dimmed (key + alpha), NOT gray
+  expect(
+    colorOf(within(screen.getByTestId('tab-Teraz')).getByText('Teraz')),
+  ).toBe(`${key}99`);
+  // other unfocused tabs stay the neutral inactive gray
+  expect(
+    colorOf(
+      within(screen.getByTestId('tab-Ustawienia')).getByText('Ustawienia'),
+    ),
+  ).toBe(colors.text.inactive);
+});

@@ -3,13 +3,20 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Text } from '../shared/ui/Text';
 import { colors } from '../shared/tokens';
 
-export function makeTabBar(activeTints: Record<string, string>) {
+export function makeTabBar(
+  activeTints: Record<string, string>,
+  // Per-tab tint when NOT focused; falls back to the neutral inactive gray.
+  // Used to keep the Teraz tab glowing the live air color from any tab.
+  inactiveTints: Record<string, string> = {},
+) {
   return function TabBar({ state, navigation }: BottomTabBarProps) {
     return (
       <View style={styles.bar}>
         {state.routes.map((route, i) => {
           const focused = state.index === i;
-          const tint = focused ? activeTints[route.name] : colors.text.inactive;
+          const tint = focused
+            ? activeTints[route.name]
+            : inactiveTints[route.name] ?? colors.text.inactive;
           return (
             <Pressable
               key={route.key}

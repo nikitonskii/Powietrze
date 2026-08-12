@@ -14,11 +14,12 @@ export function AppNavigator() {
   const { reading } = useActivePlace();
   // Teraz tab tint tracks the active reading's index; neutral accent while loading.
   const terazTint = reading ? scene(reading.index).key : colors.accent;
-  const tabBar = makeTabBar({
-    Teraz: terazTint,
-    Miejsca: colors.accent,
-    Ustawienia: colors.accent,
-  });
+  const tabBar = makeTabBar(
+    { Teraz: terazTint, Miejsca: colors.accent, Ustawienia: colors.accent },
+    // Keep the Teraz tab glowing the live air color even when unfocused (dimmed
+    // via alpha so it reads as glanceable, not active); other tabs stay gray.
+    { Teraz: reading ? `${scene(reading.index).key}99` : colors.text.inactive },
+  );
   return (
     <NavigationContainer>
       <Tab.Navigator
