@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import {
   searchStations,
@@ -11,6 +11,7 @@ import { colors, spacing } from '../../shared/tokens';
 import { Text } from '../../shared/ui/Text';
 import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
 import { useActivePlace, useFavorites, useStations } from '../../shared/place';
+import { DraggableFavorites } from './DraggableFavorites';
 import { PlaceRow } from './PlaceRow';
 import { SaveButton } from './SaveButton';
 import { SearchField } from './SearchField';
@@ -20,7 +21,7 @@ export function MiejscaScreen() {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 300);
   const stations = useStations();
-  const { favorites, remove } = useFavorites();
+  const { favorites, remove, reorder } = useFavorites();
   const { setActive } = useActivePlace();
   const navigation = useNavigation<{ navigate: (n: string) => void }>();
   const results = useMemo(
@@ -72,26 +73,12 @@ export function MiejscaScreen() {
               Wyszukaj i dodaj miejsce
             </Text>
           ) : (
-            favorites.map(s => (
-              <PlaceRow
-                key={s.id}
-                place={{ kind: 'station', station: s }}
-                title={s.city}
-                subtitle={stationLabel(s)}
-                onPress={() => open({ kind: 'station', station: s })}
-                trailing={
-                  <Pressable
-                    testID={`delete-${s.city}`}
-                    onPress={() => remove(s.id)}
-                    hitSlop={8}
-                  >
-                    <Text variant="label" color={colors.text.dim}>
-                      ✕
-                    </Text>
-                  </Pressable>
-                }
-              />
-            ))
+            <DraggableFavorites
+              favorites={favorites}
+              onOpen={s => open({ kind: 'station', station: s })}
+              onDelete={remove}
+              onReorder={reorder}
+            />
           )}
         </View>
       )}

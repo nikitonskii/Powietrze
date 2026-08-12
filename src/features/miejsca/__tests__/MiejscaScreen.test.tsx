@@ -5,6 +5,7 @@ import {
   fireEvent,
 } from '@testing-library/react-native';
 import realStations from '../../../core/geo/__fixtures__/stations.json';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MiejscaScreen } from '../MiejscaScreen';
 import {
   PlaceSourceProvider,
@@ -103,15 +104,19 @@ test('AC 006-8: favorites render live, tap navigates, ✕ persists — and delet
     },
   });
   await render(
-    <StationsProvider stations={S}>
-      <PlaceSourceProvider sourceForPlace={countingSfp}>
-        <FavoritesProvider store={store}>
-          <ActivePlaceProvider>
-            <MiejscaScreen />
-          </ActivePlaceProvider>
-        </FavoritesProvider>
-      </PlaceSourceProvider>
-    </StationsProvider>,
+    // GestureHandlerRootView is required because the favorites branch renders
+    // DraggableFavorites → GestureDetector.
+    <GestureHandlerRootView>
+      <StationsProvider stations={S}>
+        <PlaceSourceProvider sourceForPlace={countingSfp}>
+          <FavoritesProvider store={store}>
+            <ActivePlaceProvider>
+              <MiejscaScreen />
+            </ActivePlaceProvider>
+          </FavoritesProvider>
+        </PlaceSourceProvider>
+      </StationsProvider>
+    </GestureHandlerRootView>,
   );
   // one row per favorite (each with a ✕ delete affordance)
   expect(await screen.findByTestId('delete-Warszawa')).toBeTruthy();
