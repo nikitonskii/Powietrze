@@ -9,19 +9,24 @@ import {
 import { stationLabel } from '../../core/geo';
 import { colors, spacing } from '../../shared/tokens';
 import { Text } from '../../shared/ui/Text';
+import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
 import { useActivePlace, useFavorites, useStations } from '../../shared/place';
 import { PlaceRow } from './PlaceRow';
+import { SaveButton } from './SaveButton';
 import { SearchField } from './SearchField';
+import { MAX_VISIBLE_RESULTS } from './constants';
 
 export function MiejscaScreen() {
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 300);
   const stations = useStations();
-  const { favorites, add, remove } = useFavorites();
+  const { favorites, remove } = useFavorites();
   const { setActive } = useActivePlace();
   const navigation = useNavigation<{ navigate: (n: string) => void }>();
   const results = useMemo(
-    () => searchStations(stations, query),
-    [stations, query],
+    () =>
+      searchStations(stations, debouncedQuery).slice(0, MAX_VISIBLE_RESULTS),
+    [stations, debouncedQuery],
   );
 
   const open = (place: ActivePlace) => {
@@ -43,29 +48,15 @@ export function MiejscaScreen() {
       {query.trim() ? (
         <View style={styles.list}>
           {results.map(s => (
-            <View key={s.id} style={styles.resultRow}>
-              <Pressable
-                testID={`result-${s.id}`}
-                style={styles.resultMain}
-                onPress={() => open({ kind: 'station', station: s })}
-              >
-                <Text variant="city" style={styles.resultTitle}>
-                  {s.city}
-                </Text>
-                <Text variant="station" color={colors.text.dim}>
-                  {stationLabel(s)}
-                </Text>
-              </Pressable>
-              <Pressable
-                testID={`add-${s.id}`}
-                onPress={() => add(s)}
-                hitSlop={8}
-              >
-                <Text variant="city" color={colors.accent}>
-                  +
-                </Text>
-              </Pressable>
-            </View>
+            <PlaceRow
+              key={s.id}
+              testID={`result-${s.id}`}
+              place={{ kind: 'station', station: s }}
+              title={s.city}
+              subtitle={stationLabel(s)}
+              onPress={() => open({ kind: 'station', station: s })}
+              trailing={<SaveButton station={s} />}
+            />
           ))}
         </View>
       ) : (
@@ -88,7 +79,17 @@ export function MiejscaScreen() {
                 title={s.city}
                 subtitle={stationLabel(s)}
                 onPress={() => open({ kind: 'station', station: s })}
-                onDelete={() => remove(s.id)}
+                trailing={
+                  <Pressable
+                    testID={`delete-${s.city}`}
+                    onPress={() => remove(s.id)}
+                    hitSlop={8}
+                  >
+                    <Text variant="label" color={colors.text.dim}>
+                      ✕
+                    </Text>
+                  </Pressable>
+                }
               />
             ))
           )}
@@ -106,12 +107,5 @@ const styles = StyleSheet.create({
   },
   header: { paddingHorizontal: spacing.screenH, marginBottom: spacing.rowGap },
   list: { paddingHorizontal: spacing.screenH, gap: spacing.rowGap },
-  resultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.rowGap,
-  },
-  resultMain: { flex: 1 },
-  resultTitle: { fontSize: 20 },
   hint: { paddingVertical: spacing.rowV, textAlign: 'center' },
 });
