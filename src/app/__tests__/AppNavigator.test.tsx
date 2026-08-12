@@ -4,6 +4,7 @@ import {
   fireEvent,
   within,
 } from '@testing-library/react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppNavigator } from '../AppNavigator';
 import {
   PlaceSourceProvider,
@@ -11,7 +12,9 @@ import {
   FavoritesProvider,
   StationsProvider,
 } from '../../shared/place';
+import { SettingsProvider } from '../../shared/settings';
 import type { FavoritesStore } from '../../core/places';
+import { DEFAULT_SETTINGS, type SettingsStore } from '../../core/settings';
 import {
   fakeAirSource,
   pendingAirSource,
@@ -27,17 +30,28 @@ const emptyStore: FavoritesStore = {
   save: async () => {},
 };
 
+// The Ustawienia tab renders the real UstawieniaScreen, which needs a
+// settings store too.
+const settingsStore: SettingsStore = {
+  load: async () => DEFAULT_SETTINGS,
+  save: async () => {},
+};
+
 const renderNav = () =>
   render(
-    <StationsProvider stations={[]}>
-      <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
-        <FavoritesProvider store={emptyStore}>
-          <ActivePlaceProvider>
-            <AppNavigator />
-          </ActivePlaceProvider>
-        </FavoritesProvider>
-      </PlaceSourceProvider>
-    </StationsProvider>,
+    <GestureHandlerRootView>
+      <StationsProvider stations={[]}>
+        <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
+          <FavoritesProvider store={emptyStore}>
+            <ActivePlaceProvider>
+              <SettingsProvider store={settingsStore}>
+                <AppNavigator />
+              </SettingsProvider>
+            </ActivePlaceProvider>
+          </FavoritesProvider>
+        </PlaceSourceProvider>
+      </StationsProvider>
+    </GestureHandlerRootView>,
   );
 
 test('AC-9: three tabs, Teraz active, hero visible', async () => {
