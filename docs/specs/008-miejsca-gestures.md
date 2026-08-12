@@ -48,13 +48,19 @@ type FavoritesValue = {
 - `FavoriteRow` — wraps `PlaceRow` in `ReanimatedSwipeable`; `renderRightActions` is a
   red "Usuń" action (`testID="delete-<city>"`, unchanged) calling `onDelete`. The inline
   ✕ from spec 006/007 is removed (swipe replaces it).
-- `DraggableFavorites` — renders the favorite rows with long-press-drag reorder (custom
-  Reanimated shared values + a `LongPress`→`Pan` gesture, composed with each row's
-  swipeable via `Gesture.Race` so a long-press-drag wins over a horizontal swipe); calls
-  `onReorder(from, to)` on drop.
+- `DraggableFavorites` — `{ favorites, onOpen, onDelete, onReorder }`; renders the
+  favorite rows with long-press-drag reorder. **Every row is keyed by `station.id`**
+  (never array index/position), and any per-row shared-value map is keyed by id too —
+  so a reorder/delete re-renders rows without **remounting** them (a remount resets
+  `usePlaceReading` and refetches — the spec-007 no-refetch guard depends on id-stable
+  keys; see AC 008-4). On drop it calls **`onReorder(from, to)`** where `from`/`to` are
+  the row's start/end **indices** in `favorites`, in the exact argument order `moveItem`
+  expects (`MiejscaScreen` wires `onReorder={reorder}`).
 
-`App.tsx` — wrap the whole tree in `GestureHandlerRootView` (outermost), required by
-`react-native-gesture-handler`.
+`App.tsx` — wrap the whole tree in `<GestureHandlerRootView style={{ flex: 1 }}>`
+(outermost, wrapping `StationsProvider`), required by `react-native-gesture-handler`.
+The `flex: 1` is mandatory — without it the root collapses and the app renders blank.
+(RNGH needs no babel plugin; the existing `react-native-worklets/plugin` stays last.)
 
 `src/features/miejsca/MiejscaScreen.tsx` — the favorites branch renders the pinned
 location `PlaceRow` + `<DraggableFavorites favorites onOpen onDelete onReorder />`
@@ -65,7 +71,10 @@ instead of the inline `favorites.map`. Empty hint + search branch unchanged.
 - **AC 008-1** — `moveItem` (pure, unit). Pins: `moveItem(['a','b','c'], 0, 2)` →
   `['b','c','a']`; `moveItem(['a','b','c'], 2, 0)` → `['c','a','b']`;
   `moveItem(['a','b','c'], 1, 2)` → `['a','c','b']`; no-op returns the SAME reference:
-  `moveItem(l, 1, 1) === l`, and any out-of-bounds (`-1`, `>= length`) `=== l`.
+  `moveItem(l, 1, 1) === l`. Out-of-bounds on **either** operand returns the same
+  reference (each pinned separately, for 100% core branch coverage):
+  `moveItem(l, -1, 0) === l`, `moveItem(l, l.length, 0) === l`,
+  `moveItem(l, 0, -1) === l`, `moveItem(l, 0, l.length) === l`.
 - **AC 008-2** — `FavoritesProvider.reorder` (RNTL, fake store): mounted with favorites
   `[k, w, g]`, `reorder(0, 2)` yields `[w, g, k]` and calls `store.save` with `[w,g,k]`;
   `reorder(1, 1)` (no-op) does **not** call `store.save` again.
@@ -77,7 +86,9 @@ instead of the inline `favorites.map`. Empty hint + search branch unchanged.
   `FavoriteRow`/`DraggableFavorites` refactor): the spec-006/007 favorites tests still
   pass — `delete-<city>` removes + persists, deleting one favorite does NOT refetch the
   others (the placeKey guard), the pinned location row + empty hint, and the search/save
-  flow (AC 006-9 / 007-4) are unaffected.
+  flow (AC 006-9 / 007-4) are unaffected. The no-refetch guard (`calls.s530 === 1` after
+  deleting another favorite) is the automated proof that `DraggableFavorites` keys rows by
+  `station.id`, not by index/position — an index key would remount rows and re-trigger the fetch.
 - **AC 008-5** *(manual)* — On the simulator: (a) swipe a favorite left → **"Usuń"** →
   the favorite is removed; (b) long-press a favorite → it lifts → drag over another →
   drop → the order changes; (c) kill & relaunch → the new order **persists**; (d) the
@@ -88,9 +99,16 @@ instead of the inline `favorites.map`. Empty hint + search branch unchanged.
 
 ## Resolved ambiguities
 
-- **Swipe = `ReanimatedSwipeable`** (RNGH built-in); **reorder = custom** Reanimated +
-  gesture-handler (no library equivalent that fits the New-Arch/Reanimated-4 stack
-  without risk). Composed with `Gesture.Race` (long-press-drag beats swipe).
+- **Swipe = `ReanimatedSwipeable`** (RNGH built-in, gated on horizontal offset via
+  `activeOffsetX`); **reorder = custom** Reanimated + gesture-handler (no library
+  equivalent that fits the New-Arch/Reanimated-4 stack without risk). **Composition
+  (corrected):** `ReanimatedSwipeable` owns its pan in its own internal `GestureDetector`
+  and exposes only `simultaneousWith` (no race/blocking prop) — so `Gesture.Race` against
+  it is not possible. The reorder gesture is a `LongPress` → `Pan` gated on **vertical**
+  offset (`activeOffsetY`); axis separation (vertical drag vs horizontal swipe) keeps
+  them from tripping each other. If a genuine "drag suppresses swipe" is needed, hand the
+  reorder gesture to the swipeable via its `simultaneousWith` prop — RNGH exposes no way
+  to fully block the swipeable's internal pan from outside.
 - **Delete testID preserved** (`delete-<city>`) so the swipe action is the same
   target the existing favorites tests press — the swipe gesture is new, the delete
   contract is not.
@@ -105,11 +123,18 @@ instead of the inline `favorites.map`. Empty hint + search branch unchanged.
 
 ## Risks & config
 
-- **New dep `react-native-gesture-handler` → ADR-012** (a DoD gate): `pod install`,
-  `GestureHandlerRootView` wrapping the app, and `import 'react-native-gesture-handler/jestSetup'`
-  at the top of `jest.setup.js`. Justify over alternatives (the RN-community standard;
-  Reanimated-4-compatible; required for `ReanimatedSwipeable`). Note New-Arch/RN-0.86
-  support and pin the version if needed.
+- **New dep `react-native-gesture-handler@^3.1.0` → ADR-012** (a DoD gate). v3.1.0 is
+  **New-Architecture-only**, matching RN 0.86's New Arch default (peerDeps are loose).
+  ADR records: chosen as the RN-community standard, Reanimated-4-compatible, required for
+  `ReanimatedSwipeable`; New-Arch-only + version pin rationale. Setup:
+  - `pod install`.
+  - `<GestureHandlerRootView style={{ flex: 1 }}>` wrapping the app (see App.tsx above).
+  - `import 'react-native-gesture-handler/jestSetup';` at the **top** of `jest.setup.js`.
+  - **`jest.config.js` `transformIgnorePatterns`** MUST allowlist `react-native-gesture-handler`
+    — RNGH 3.1.0 ships **ESM-only** (no `lib/commonjs` build), so without transforming it
+    Jest throws `SyntaxError: Unexpected token 'export'` and every test importing
+    `FavoriteRow`/`MiejscaScreen` fails before asserting. Add it to the existing
+    `node_modules/(?!(…)/)` allowlist regex. (No babel plugin needed.)
 - **Jest rendering of `ReanimatedSwipeable`**: AC 008-3/008-4 assume the RNGH jest mock
   renders `renderRightActions` into the tree (so `delete-<city>` is queryable). The plan
   must verify this at build time; if the mock renders children-only, `FavoriteRow` keeps
