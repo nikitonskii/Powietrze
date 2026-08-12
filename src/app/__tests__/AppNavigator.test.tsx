@@ -5,19 +5,36 @@ import {
   within,
 } from '@testing-library/react-native';
 import { AppNavigator } from '../AppNavigator';
-import { PlaceSourceProvider, ActivePlaceProvider } from '../../shared/place';
+import {
+  PlaceSourceProvider,
+  ActivePlaceProvider,
+  FavoritesProvider,
+  StationsProvider,
+} from '../../shared/place';
+import type { FavoritesStore } from '../../core/places';
 import { fakeAirSource } from '../../shared/test/fakeAirSource';
 import { scene } from '../../core/scene';
 import { colors } from '../../shared/tokens';
 import { colorOf } from '../../shared/test/colorOf';
 
+// The Miejsca tab renders the real MiejscaScreen, which needs the favorites +
+// stations providers too.
+const emptyStore: FavoritesStore = {
+  load: async () => [],
+  save: async () => {},
+};
+
 const renderNav = () =>
   render(
-    <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
-      <ActivePlaceProvider>
-        <AppNavigator />
-      </ActivePlaceProvider>
-    </PlaceSourceProvider>,
+    <StationsProvider stations={[]}>
+      <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
+        <FavoritesProvider store={emptyStore}>
+          <ActivePlaceProvider>
+            <AppNavigator />
+          </ActivePlaceProvider>
+        </FavoritesProvider>
+      </PlaceSourceProvider>
+    </StationsProvider>,
   );
 
 test('AC-9: three tabs, Teraz active, hero visible', async () => {

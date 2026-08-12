@@ -13,7 +13,8 @@ every visual. This file is the always-loaded rulebook: pointers, not prose.
 
 ## Architecture
 - Layers: `src/core` (pure TS, zero React imports) ← `src/shared`
-  (UI kit, tokens) ← `src/features/{teraz,miejsca,ustawienia}`
+  (UI kit, tokens, cross-feature app-state contexts) ←
+  `src/features/{teraz,miejsca,ustawienia}`
 - Imports flow one way: features → shared → core. Never the reverse.
   No cross-feature imports.
 - UI never calls data-fetching directly — only via interfaces in `src/core`.
