@@ -3,21 +3,29 @@ import type { Scene } from '../../core/scene';
 import { Text } from '../../shared/ui/Text';
 import { NumberGlow } from '../../shared/ui/NumberGlow';
 import { colors } from '../../shared/tokens';
-import type { Place } from './mockData';
+
+export interface Place {
+  city: string;
+  station: string;
+  freshness: string;
+  index: number;
+}
 
 export function Hero({
   scene,
   place,
   pm25,
+  eyebrow,
 }: {
   scene: Scene;
   place: Place;
   pm25?: number; // real measured µg/m³; falls back to the scene-derived value
+  eyebrow: string; // 'TWOJA LOKALIZACJA' for your location, 'MIEJSCE' for a selected place
 }) {
   return (
     <View style={styles.wrap}>
       <Text variant="label" color={colors.text.label}>
-        TWOJA LOKALIZACJA
+        {eyebrow}
       </Text>
       <Text variant="city" style={styles.city}>
         {place.city}

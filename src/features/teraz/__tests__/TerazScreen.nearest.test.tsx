@@ -1,39 +1,70 @@
-import { render, screen } from '@testing-library/react-native';
+import {
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+} from '@testing-library/react-native';
+import { Pressable, Text } from 'react-native';
 import { TerazScreen } from '../TerazScreen';
-import { AirSourceProvider } from '../AirSourceContext';
-import type { AirQualitySource, Reading } from '../../../core/air';
+import {
+  PlaceSourceProvider,
+  ActivePlaceProvider,
+  useActivePlace,
+  type SourceForPlace,
+} from '../../../shared/place';
+import type { Reading } from '../../../core/air';
+import type { Station } from '../../../core/geo';
 
-const warsawReading: Reading = {
+const warsaw: Station = {
+  id: 530,
+  name: 'Warszawa, Al. Niepodległości',
+  city: 'Warszawa',
+  lat: 0,
+  lon: 0,
+};
+const rLoc: Reading = {
+  index: 4,
+  pm25: 5,
+  measuredAt: '2026-08-11 21:00:00',
+  city: 'Kraków',
+  station: 'x',
+};
+const rWaw: Reading = {
   index: 42,
   pm25: 43,
   measuredAt: '2026-08-11 21:00:00',
   city: 'Warszawa',
-  station: 'Al. Niepodległości · stacja GIOŚ',
+  station: 'y',
 };
-
-test('AC 005-7: TerazScreen renders the resolved (non-Kraków) city + index', async () => {
-  const source: AirQualitySource = {
-    getCurrentReading: async () => warsawReading,
-  };
-  await render(
-    <AirSourceProvider source={source}>
-      <TerazScreen />
-    </AirSourceProvider>,
-  );
-  expect(await screen.findByText('Warszawa')).toBeTruthy();
-  expect(screen.getByText('42')).toBeTruthy();
+const sourceForPlace: SourceForPlace = p => ({
+  getCurrentReading: () => Promise.resolve(p.kind === 'location' ? rLoc : rWaw),
 });
 
-test('AC 005-7: TerazScreen shows the loading state while the reading is pending', async () => {
-  // A source that never resolves keeps the screen in its loading state.
-  const pending: AirQualitySource = {
-    getCurrentReading: () => new Promise<Reading>(() => {}),
-  };
-  await render(
-    <AirSourceProvider source={pending}>
-      <TerazScreen />
-    </AirSourceProvider>,
+function Picker() {
+  const { setActive } = useActivePlace();
+  return (
+    <Pressable
+      testID="pick-waw"
+      onPress={() => setActive({ kind: 'station', station: warsaw })}
+    >
+      <Text>pick</Text>
+    </Pressable>
   );
-  expect(screen.getByTestId('teraz-loading')).toBeTruthy();
-  expect(screen.queryByText('Kraków')).toBeNull(); // no hardcoded fallback content
+}
+
+test('AC 006-7: Teraz renders the active place + eyebrow (location → station)', async () => {
+  await render(
+    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+      <ActivePlaceProvider>
+        <TerazScreen />
+        <Picker />
+      </ActivePlaceProvider>
+    </PlaceSourceProvider>,
+  );
+  expect(await screen.findByText('Kraków')).toBeTruthy();
+  expect(screen.getByText('TWOJA LOKALIZACJA')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('pick-waw'));
+  await waitFor(() => expect(screen.getByText('Warszawa')).toBeTruthy());
+  expect(screen.getByText('42')).toBeTruthy();
+  expect(screen.getByText('MIEJSCE')).toBeTruthy();
 });
