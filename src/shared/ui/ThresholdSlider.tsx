@@ -23,7 +23,10 @@ export function ThresholdSlider({
   const pan = Gesture.Pan()
     .onBegin(e => runOnJS(emit)(e.x))
     .onUpdate(e => runOnJS(emit)(e.x));
-  const knobLeft = ratioFromThreshold(value) * width;
+  const knobLeft = Math.min(
+    Math.max(0, width - 22),
+    Math.max(0, ratioFromThreshold(value) * width - 11),
+  );
 
   return (
     <View testID={testID}>
@@ -42,7 +45,7 @@ export function ThresholdSlider({
               style={StyleSheet.absoluteFill}
             />
           </View>
-          <View style={[styles.knob, { left: Math.max(0, knobLeft - 11) }]} />
+          <View style={[styles.knob, { left: knobLeft }]} />
         </View>
       </GestureDetector>
     </View>
