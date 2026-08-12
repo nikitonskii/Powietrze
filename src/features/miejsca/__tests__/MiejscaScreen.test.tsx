@@ -82,11 +82,12 @@ test('AC 006-9: search filters, + adds a favorite (persists), tap previews + nav
   await renderScreen(store);
   fireEvent.changeText(screen.getByTestId('search-input'), 'krak');
   expect(await screen.findByText('Kraków')).toBeTruthy();
-  fireEvent.press(screen.getByTestId('add-400'));
+  await screen.findByText('4'); // the result's live reading settled (avoids act races)
+  fireEvent.press(screen.getByTestId('save-400'));
   await waitFor(() => expect(store.saved).toHaveLength(1));
   expect(store.saved[0].map(s => s.id)).toEqual([400]);
   fireEvent.press(screen.getByTestId('result-400'));
-  expect(mockNavigate).toHaveBeenCalledWith('Teraz');
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Teraz'));
 });
 
 test('AC 006-8: favorites render live, tap navigates, ✕ persists — and deleting one does NOT refetch the others', async () => {
@@ -127,4 +128,54 @@ test('AC 006-8: favorites render live, tap navigates, ✕ persists — and delet
   // tapping the remaining favorite row navigates to Teraz
   fireEvent.press(screen.getByText('Warszawa'));
   await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Teraz'));
+});
+
+test('AC 007-4: results capped at 8, only shown rows fetch, preview navigates, save works, no-data → brak danych', async () => {
+  mockNavigate.mockClear();
+  const many: Station[] = Array.from({ length: 12 }, (_, i) => ({
+    id: i + 1,
+    name: `Testowo ${i + 1}`,
+    city: 'Testowo',
+    lat: 0,
+    lon: 0,
+  }));
+  const store = makeStore();
+  let stationReads = 0;
+  const countingSfp: SourceForPlace = place => ({
+    getCurrentReading: () => {
+      if (place.kind === 'station') {
+        stationReads++;
+        if (place.station.id === 1) return Promise.reject(new Error('down'));
+      }
+      return Promise.resolve(anyReading);
+    },
+  });
+  await render(
+    <StationsProvider stations={many}>
+      <PlaceSourceProvider sourceForPlace={countingSfp}>
+        <FavoritesProvider store={store}>
+          <ActivePlaceProvider>
+            <MiejscaScreen />
+          </ActivePlaceProvider>
+        </FavoritesProvider>
+      </PlaceSourceProvider>
+    </StationsProvider>,
+  );
+  fireEvent.changeText(screen.getByTestId('search-input'), 'testowo');
+
+  // Settle EVERYTHING in a single act-wrapped gate before interacting: 8 rows
+  // mounted, 7 readings resolved (index 4), 1 rejected ("brak danych"). One waitFor
+  // absorbs all the concurrent PlaceRow fetch resolutions in one act scope.
+  await waitFor(() => {
+    expect(screen.getAllByTestId(/^save-/)).toHaveLength(8);
+    expect(screen.getAllByText('4')).toHaveLength(7);
+    expect(screen.getByText('brak danych')).toBeTruthy();
+  });
+  expect(stationReads).toBe(8); // cost guard: only the 8 shown rows fetched, not 12
+
+  fireEvent.press(screen.getByTestId('result-2'));
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('Teraz'));
+  fireEvent.press(screen.getByTestId('save-3'));
+  await screen.findByTestId('saved-3');
+  expect(store.saved.map(l => l.map(s => s.id))).toContainEqual([3]);
 });
