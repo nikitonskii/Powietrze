@@ -11,12 +11,21 @@ export const colors = {
     label: 'rgba(255,255,255,0.62)',
     dim: 'rgba(255,255,255,0.5)',
     inactive: 'rgba(255,255,255,0.45)',
+    faint: 'rgba(255,255,255,0.4)',
+    footer: 'rgba(255,255,255,0.35)',
+    muted: 'rgba(255,255,255,0.55)',
   },
   tabBar: {
     bg: 'rgba(10,12,17,0.55)',
     border: 'rgba(255,255,255,0.08)',
   },
   card: 'rgba(255,255,255,0.06)',
+  control: {
+    trackOff: 'rgba(255,255,255,0.18)',
+    segBg: 'rgba(255,255,255,0.08)',
+    segActive: 'rgba(255,255,255,0.16)',
+    divider: 'rgba(255,255,255,0.06)',
+  },
 } as const;
 
 export const type = {
