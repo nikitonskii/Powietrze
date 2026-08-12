@@ -4,6 +4,7 @@ import {
   waitFor,
   fireEvent,
 } from '@testing-library/react-native';
+import { Text as RNText } from 'react-native';
 import { PlaceRow } from '../PlaceRow';
 import {
   PlaceSourceProvider,
@@ -26,33 +27,40 @@ const reading: Reading = {
   city: 'Warszawa',
   station: 'y',
 };
-const wrap = (sfp: SourceForPlace, onPress = () => {}) =>
+
+const wrap = (
+  sfp: SourceForPlace,
+  opts: { onPress?: () => void; trailing?: React.ReactNode } = {},
+) =>
   render(
     <PlaceSourceProvider sourceForPlace={sfp}>
       <PlaceRow
         place={{ kind: 'station', station: w }}
         title="Warszawa"
         subtitle="Al. Niepodległości"
-        onPress={onPress}
+        onPress={opts.onPress ?? (() => {})}
+        trailing={opts.trailing}
+        testID="row-530"
       />
     </PlaceSourceProvider>,
   );
 
-test('AC 006-8: renders title + live index and fires onPress', async () => {
+test('AC 007-2: resolving source renders the live index + trailing; row press fires onPress', async () => {
   const onPress = jest.fn();
-  await wrap(
-    () => ({ getCurrentReading: () => Promise.resolve(reading) }),
+  await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) }), {
     onPress,
-  );
-  expect(screen.getByText('Warszawa')).toBeTruthy();
+    trailing: <RNText>TRAIL</RNText>,
+  });
   await waitFor(() => expect(screen.getByText('42')).toBeTruthy());
-  fireEvent.press(screen.getByText('Warszawa'));
+  expect(screen.getByText('TRAIL')).toBeTruthy();
+  fireEvent.press(screen.getByTestId('row-530'));
   expect(onPress).toHaveBeenCalled();
 });
 
-test('AC 006-8: a failed reading shows a muted —', async () => {
+test('AC 007-2: a failed reading shows "brak danych", not "—"', async () => {
   await wrap(() => ({
     getCurrentReading: () => Promise.reject(new Error('down')),
   }));
-  await waitFor(() => expect(screen.getByText('—')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('brak danych')).toBeTruthy());
+  expect(screen.queryByText('—')).toBeNull();
 });
