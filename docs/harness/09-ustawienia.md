@@ -27,9 +27,11 @@ Every control is **live + persisted** via a new `SettingsStore` (AsyncStorage `p
 **Verifier (independent test run, not report-trust): 23/24 VERIFIED · 1 manual-pending (AC-24) · 0 FAILED.**
 Gate: Test Suites 40/40 · Tests 133/133 · lint 0 errors (4 pre-existing warnings) · typecheck clean · `src/core` coverage 100/100/100/100 (threshold met).
 - **AC-1..23:** VERIFIED — each traced to a passing test the verifier ran itself; AC-1 (default table) and AC-18 (Polish copy) confirmed genuine literal fixtures.
-- **AC-24 (manual):** NOT-YET-VERIFIED — physical threshold drag + recolor + screenshot on the simulator, PENDING human walkthrough (jest can't drive gestures; 008 precedent). Spec + `ThresholdSlider.test.tsx` correctly defer it.
-
-<!-- AC-24 EVIDENCE (to append after sim run): screenshot path in docs/harness/evidence/09/ + drag observation. -->
+- **AC-24 (manual):** PARTIAL — visual fidelity VERIFIED on-device; physical drag motion still human-only.
+  - **On-device screenshot** (iPhone 16 Pro, iOS 18.3, this branch running via Metro): `docs/harness/evidence/09/ustawienia-sim-lower.png` (POWIADOMIENIA + WIDŻET I WYGLĄD + DANE + footer).
+  - **Verified from the device render:** all rows/copy/glyphs match the spec (`22:00 – 07:00` en-dash, `µg/m³`, `Automatyczna` with the `›` chevron correctly dropped); every "Wkrótce" tag on the right rows and none on Źródło/Częstotliwość; segmented shows CAQI active; the DANE footer both lines. The tab bar shows the Teraz tab in its dimmed live air-color (green) while Ustawienia is focused (PR #7 confirmed live too).
+  - **Slider:** observed at a **persisted non-default value 76** — knob at the matching ratio (≈(76−25)/175 = 0.29) and the number tinted by the air ramp (orange). Consistent with a working, persisted custom slider.
+  - **Not done by the agent:** the physical drag/toggle/segment taps were not agent-driven — `idb` is not installed and `osascript` UI automation is accessibility-blocked in this environment, so taps/drags can't be issued headlessly (same constraint documented for M-loc/gestures). The non-default 76 was set by a human hand. Remaining human confirmation: drag the knob end-to-end and watch value + track recolor smoothly within [25,200] (the interactive half of AC-24). Top-of-screen groups (Ustawienia header + LOKALIZACJA) not captured this session — the app can't be scrolled headlessly and relaunch resets to the Teraz tab.
 
 ## Deferred (fast-follow, non-blocking — final review ruled ship-as-is)
 - SettingsGroup test doesn't assert the divider-count invariant (divider has no testID) — add `testID={`divider-${i}`}` + count assertion next time it's touched.
