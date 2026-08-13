@@ -1,0 +1,134 @@
+### commits
+3de6fab feat(atmosphere): render density-driven skyline in the canvas (AC-4, spec 010)
+
+### stat
+ src/shared/ui/Atmosphere.tsx             |  2 ++
+ src/shared/ui/Skyline.tsx                | 45 ++++++++++++++++++++++++++++++++
+ src/shared/ui/__tests__/Skyline.test.tsx | 20 ++++++++++++++
+ 3 files changed, 67 insertions(+)
+
+### diff
+diff --git a/src/shared/ui/Atmosphere.tsx b/src/shared/ui/Atmosphere.tsx
+index a709d9b..17bcb97 100644
+--- a/src/shared/ui/Atmosphere.tsx
++++ b/src/shared/ui/Atmosphere.tsx
+@@ -9,24 +9,25 @@ import {
+   type SharedValue,
+ } from 'react-native-reanimated';
+ import type { Scene } from '../../core/scene';
+ import {
+   atmosphere,
+   DRIFT_VY_MIN,
+   DRIFT_VY_MAX,
+   RADIUS_MIN,
+   RADIUS_MAX,
+   WANDER_MIN,
+   WANDER_MAX,
+ } from '../../core/atmosphere';
++import { Skyline } from './Skyline';
+ 
+ const MS_PER_FRAME = 1000 / 60; // the design's vy is px/frame; the clock is ms
+ // Ambient floor: keep a gently-alive field even on clean-air days (density
+ // bottoms out at ~8 faint specks otherwise). Density still scales above this.
+ const AMBIENT_MIN_COUNT = 48;
+ const AMBIENT_MIN_OPACITY = 0.13;
+ 
+ // Deterministic pseudo-random in [0,1) from an integer — a stable field seed.
+ function rand(n: number): number {
+   const x = Math.sin(n * 12.9898) * 43758.5453;
+   return x - Math.floor(x);
+ }
+@@ -111,15 +112,16 @@ export function Atmosphere({
+         {particles.map((p, i) => (
+           <ParticleDot
+             key={i}
+             p={p}
+             clock={clock}
+             color={scene.key}
+             opacity={opacity}
+             frozen={frozen}
+             height={height}
+           />
+         ))}
+       </Group>
++      <Skyline density={scene.density} width={width} height={height} />
+     </Canvas>
+   );
+ }
+diff --git a/src/shared/ui/Skyline.tsx b/src/shared/ui/Skyline.tsx
+new file mode 100644
+index 0000000..2418c0f
+--- /dev/null
++++ b/src/shared/ui/Skyline.tsx
+@@ -0,0 +1,45 @@
++import { Group, Path, Blur } from '@shopify/react-native-skia';
++import {
++  SKYLINE_PATH,
++  SKYLINE_TOP_RATIO,
++  SKYLINE_VIEWBOX,
++  skyline,
++  skylineColor,
++} from '../../core/atmosphere';
++
++// The Horizon city silhouette: drawn in the atmosphere Skia canvas, its viewBox
++// origin anchored at 44% of screen height, scaled uniformly to full width, and
++// blurred/faded by air density. Extracted so Atmosphere() stays ≤40 lines.
++export function Skyline({
++  density,
++  width,
++  height,
++}: {
++  density: number;
++  width: number;
++  height: number;
++}) {
++  const { blur, opacity } = skyline(density);
++  const scale = width / SKYLINE_VIEWBOX.width;
++  // Skia's public prop types don't declare `testID` (it's only reachable via
++  // the jest mock's host-node prop passthrough), so the query hooks below are
++  // spread from plain objects rather than inlined as JSX literals — TS only
++  // excess-property-checks fresh object literals, not spread variables.
++  const groupProps = {
++    testID: 'skyline-group',
++    opacity,
++    transform: [{ translateY: SKYLINE_TOP_RATIO * height }, { scale }],
++  };
++  const blurProps = { testID: 'skyline-blur', blur };
++  const pathProps = {
++    testID: 'skyline',
++    path: SKYLINE_PATH,
++    color: skylineColor(density),
++  };
++  return (
++    <Group {...groupProps}>
++      <Blur {...blurProps} />
++      <Path {...pathProps} />
++    </Group>
++  );
++}
+diff --git a/src/shared/ui/__tests__/Skyline.test.tsx b/src/shared/ui/__tests__/Skyline.test.tsx
+new file mode 100644
+index 0000000..93577d3
+--- /dev/null
++++ b/src/shared/ui/__tests__/Skyline.test.tsx
+@@ -0,0 +1,20 @@
++import { render, screen } from '@testing-library/react-native';
++import { Canvas } from '@shopify/react-native-skia';
++import { Skyline } from '../Skyline';
++import { skyline, skylineColor } from '../../../core/atmosphere';
++
++const renderSky = (density: number) =>
++  render(
++    <Canvas>
++      <Skyline density={density} width={389} height={800} />
++    </Canvas>,
++  );
++
++test('AC-4: skyline path/group/blur carry the density-derived props', async () => {
++  await renderSky(0.5);
++  expect(screen.getByTestId('skyline').props.color).toBe(skylineColor(0.5));
++  expect(screen.getByTestId('skyline-group').props.opacity).toBe(
++    skyline(0.5).opacity,
++  );
++  expect(screen.getByTestId('skyline-blur').props.blur).toBe(skyline(0.5).blur);
++});

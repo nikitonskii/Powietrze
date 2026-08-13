@@ -1,0 +1,129 @@
+### commits
+7abb9e6 feat(nav): icon tab bar with design tint/geometry/a11y (AC-3..6, spec 011)
+
+### stat
+ src/app/TabBar.tsx                      | 32 ++++++++++++++++++++++++++------
+ src/app/__tests__/AppNavigator.test.tsx | 24 ++++++++++++++++++++++++
+ 2 files changed, 50 insertions(+), 6 deletions(-)
+
+### diff
+diff --git a/src/app/TabBar.tsx b/src/app/TabBar.tsx
+index a379541..1b59543 100644
+--- a/src/app/TabBar.tsx
++++ b/src/app/TabBar.tsx
+@@ -1,48 +1,68 @@
+-import { Pressable, StyleSheet, View } from 'react-native';
++import { Pressable, StyleSheet, Text, View } from 'react-native';
+ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+-import { Text } from '../shared/ui/Text';
+-import { colors } from '../shared/tokens';
++import { TabIcon, type TabIconName } from '../shared/ui/TabIcon';
++import { colors, type as typeScale } from '../shared/tokens';
++
++const ROUTE_ICON: Record<string, TabIconName> = {
++  Teraz: 'teraz',
++  Miejsca: 'miejsca',
++  Ustawienia: 'ustawienia',
++};
+ 
+ export function makeTabBar(
+   activeTints: Record<string, string>,
+   // Per-tab tint when NOT focused; falls back to the neutral inactive gray.
+   // Used to keep the Teraz tab glowing the live air color from any tab.
+   inactiveTints: Record<string, string> = {},
+ ) {
+   return function TabBar({ state, navigation }: BottomTabBarProps) {
+     return (
+       <View style={styles.bar}>
+         {state.routes.map((route, i) => {
+           const focused = state.index === i;
+           const tint = focused
+             ? activeTints[route.name]
+             : inactiveTints[route.name] ?? colors.text.inactive;
+           return (
+             <Pressable
+               key={route.key}
+               testID={`tab-${route.name}`}
++              accessibilityRole="button"
++              accessibilityState={{ selected: focused }}
+               style={styles.item}
+               onPress={() => navigation.navigate(route.name)}
+             >
+-              <Text variant="label" color={tint} style={styles.itemLabel}>
++              {ROUTE_ICON[route.name] && (
++                <TabIcon
++                  name={ROUTE_ICON[route.name]}
++                  color={tint}
++                  testID={`icon-${route.name}`}
++                />
++              )}
++              <Text style={[styles.itemLabel, { color: tint }]}>
+                 {route.name}
+               </Text>
+             </Pressable>
+           );
+         })}
+       </View>
+     );
+   };
+ }
+ const styles = StyleSheet.create({
+   bar: {
+     flexDirection: 'row',
+     height: 88,
++    paddingTop: 10,
+     paddingBottom: 24,
+     backgroundColor: colors.tabBar.bg,
+     borderTopWidth: 1,
+     borderTopColor: colors.tabBar.border,
+   },
+-  item: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+-  itemLabel: { letterSpacing: 0.5 },
++  item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
++  itemLabel: {
++    fontSize: typeScale.tab.size,
++    fontWeight: typeScale.tab.weight,
++    letterSpacing: typeScale.tab.letterSpacing,
++  },
+ });
+diff --git a/src/app/__tests__/AppNavigator.test.tsx b/src/app/__tests__/AppNavigator.test.tsx
+index 0b6994f..aabf59b 100644
+--- a/src/app/__tests__/AppNavigator.test.tsx
++++ b/src/app/__tests__/AppNavigator.test.tsx
+@@ -117,12 +117,36 @@ test('the Teraz tab keeps a dimmed live air tint when unfocused (glanceable from
+   await screen.findByTestId('screen-miejsca');
+   // unfocused Teraz still shows the live air color, dimmed (key + alpha), NOT gray
+   expect(
+     colorOf(within(screen.getByTestId('tab-Teraz')).getByText('Teraz')),
+   ).toBe(`${key}99`);
+   // other unfocused tabs stay the neutral inactive gray
+   expect(
+     colorOf(
+       within(screen.getByTestId('tab-Ustawienia')).getByText('Ustawienia'),
+     ),
+   ).toBe(colors.text.inactive);
+ });
++
++test('AC-3/AC-4: each tab shows its icon (tinted like the label) above the label', async () => {
++  await renderNav();
++  await screen.findByText('118');
++  const key = scene(118).key;
++  expect(
++    within(screen.getByTestId('tab-Teraz')).getByTestId('icon-Teraz').props
++      .color,
++  ).toBe(key); // focused Teraz → live key tint
++  expect(
++    within(screen.getByTestId('tab-Miejsca')).getByTestId('icon-Miejsca').props
++      .color,
++  ).toBe(colors.text.inactive); // unfocused → neutral
++});
++
++test('AC-6: each tab is a selected-aware button', async () => {
++  await renderNav();
++  expect(
++    screen.getByTestId('tab-Teraz').props.accessibilityState.selected,
++  ).toBe(true);
++  expect(
++    screen.getByTestId('tab-Miejsca').props.accessibilityState.selected,
++  ).toBe(false);
++});
