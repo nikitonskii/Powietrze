@@ -24,7 +24,10 @@ Two design-fidelity pieces the app was missing, both realized with Skia (already
 - **010:** AC-1 (path/viewBox/top-ratio literal fixture) ✓ · AC-2 (skyline blur/opacity) ✓ · AC-3 (skylineColor rgba+rounding) ✓ · AC-4 (Skia render props) ✓ · **AC-5 (manual)** — skyline crisp→blurred→swallowed at clean/moderate/bad air — PENDING sim.
 - **011:** AC-1 (ICON_PATHS fixture) ✓ · AC-2 (TabIcon stroke/color/testID) ✓ · AC-3 (icon-over-label + type.tab) ✓ · AC-4 (tint on icon+label; PR #7 tests unchanged) ✓ · AC-5 (bar geometry) ✓ · AC-6 (a11y selected) ✓ · **AC-7 (manual)** — icons render crisply + tint per focus — PENDING sim.
 
-<!-- MANUAL EVIDENCE (append after sim run): docs/harness/evidence/10/ (skyline @ 3 indices), docs/harness/evidence/11/ (tab bar). -->
+### Manual evidence (on-device, 2026-08-13)
+Agent-driven: started Metro from this worktree, relaunched the app (JS-only milestone — Skia already linked, no native rebuild), screenshotted the iPhone 16 Pro sim.
+- **010 AC-5 — skyline: VERIFIED (clean air).** `docs/harness/evidence/10/skyline-clean-air.png` — at Kraków index 10 (Bardzo dobry) the city silhouette renders at ~44% screen height, full width, **crisp and dark** against the green atmosphere — exactly the "crisp at Bardzo dobry" end of the density ramp. The blur/fade at moderate/bad air isn't captured yet (would need a bad-air reading or index override) — the pure `skyline()` math is unit-tested (AC-2), so this confirms the on-device render + placement.
+- **011 AC-7 — tab bar icons: NOT captured.** A dev-only `LogBox` banner ("Open debugger to view warnings") overlays the tab-bar icon row and can't be dismissed headlessly (no idb; the ✕ needs a tap). The bar itself renders correctly (labels visible: Teraz green/live-tinted, Miejsca/Ustawienia grey); the icons are proven by the automated tests (011 AC-2/AC-3/AC-4). A human tapping the banner's ✕ (or a release build) shows the icons.
 
 ## Deferred (non-blocking)
 - Skia-testID `.d.ts` augmentation (collapse the props-spread pattern) when a 3rd Skia-testID site appears.
