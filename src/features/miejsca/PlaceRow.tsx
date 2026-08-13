@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ActivePlace } from '../../core/places';
-import { scene } from '../../core/scene';
+import { scene, trendArrow } from '../../core/scene';
 import { usePlaceReading } from '../../shared/place';
 import { Text } from '../../shared/ui/Text';
 import { colors, spacing } from '../../shared/tokens';
@@ -34,6 +34,21 @@ export function PlaceRow({
         <Text variant="station" color={colors.text.dim}>
           {subtitle}
         </Text>
+        {reading ? (
+          <View style={styles.trendLine}>
+            <Text variant="station" color={colors.text.high}>
+              {scene(reading.index).band}
+            </Text>
+            <Text
+              variant="station"
+              color={scene(reading.index).key}
+              style={styles.trend}
+              testID={`trend-${reading.index}`}
+            >
+              {trendArrow(reading.index)}
+            </Text>
+          </View>
+        ) : null}
       </View>
       {reading ? (
         <Text
@@ -64,6 +79,13 @@ const styles = StyleSheet.create({
     borderRadius: 22,
   },
   left: { flex: 1 },
+  trendLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 4,
+  },
+  trend: { fontWeight: '600' },
   title: { fontSize: 20 },
   index: { fontSize: 44, letterSpacing: 0 },
 });
