@@ -13,6 +13,8 @@ import {
 } from '../../../shared/place';
 import type { Station } from '../../../core/geo';
 import type { Reading } from '../../../core/air';
+import { scene, trendArrow } from '../../../core/scene';
+import { colorOf } from '../../../shared/test/colorOf';
 
 const w: Station = {
   id: 530,
@@ -83,4 +85,21 @@ test('AC 007-2: while loading (pending source), shows neither the index nor "bra
     resolveReading(reading);
   });
   await waitFor(() => expect(screen.getByText('42')).toBeTruthy());
+});
+
+test('AC 013-2/3: a live row shows the band + trend arrow tinted the key color', async () => {
+  await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) })); // index 42
+  await screen.findByText('42');
+  expect(screen.getByText(scene(42).band)).toBeTruthy();
+  const arrow = screen.getByTestId('trend-42');
+  expect(arrow.props.children).toBe(trendArrow(42)); // '→' (40..85)
+  expect(colorOf(arrow)).toBe(scene(42).key);
+});
+
+test('AC 013-2: no band+trend line when the row has no reading (stale)', async () => {
+  await wrap(() => ({
+    getCurrentReading: () => Promise.reject(new Error('down')),
+  }));
+  await screen.findByText('brak danych');
+  expect(screen.queryByTestId('trend-42')).toBeNull();
 });
