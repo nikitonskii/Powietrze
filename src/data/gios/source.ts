@@ -16,13 +16,6 @@ import {
 } from './mappers';
 import { fetchStations } from './stations';
 
-// getDetail is not yet part of the shared AirQualitySource interface (that
-// lands with Task 4's core change); until then, factories return this
-// intersection so callers can use getDetail without a cast.
-type SourceWithDetail = AirQualitySource & {
-  getDetail: () => Promise<ReadingDetail>;
-};
-
 // Builds a Reading for one Station: sensors → PM2.5 sensor → latest value.
 // Shared by the Kraków path and nearest-station resolution.
 async function readStation(
@@ -91,7 +84,7 @@ async function detailFor(
 // Kraków station. Nearest-by-location resolution goes through createNearestStationSource.
 export function createGiosSource(
   fetchImpl: typeof fetch = fetch,
-): SourceWithDetail {
+): AirQualitySource {
   return {
     getCurrentReading: () => readStation(KRAKOW_STATION, fetchImpl),
     getDetail: () => detailFor(KRAKOW_STATION, fetchImpl),
@@ -103,7 +96,7 @@ export function createGiosSource(
 export function createStationSource(
   station: Station,
   fetchImpl: typeof fetch = fetch,
-): SourceWithDetail {
+): AirQualitySource {
   return {
     getCurrentReading: () => readStation(station, fetchImpl),
     getDetail: () => detailFor(station, fetchImpl),
@@ -121,7 +114,7 @@ export function createStationSource(
 export function createNearestStationSource(
   geo: Geolocation,
   fetchImpl: typeof fetch = fetch,
-): SourceWithDetail {
+): AirQualitySource {
   let stationP: Promise<Station> | null = null;
   const resolveStation = (): Promise<Station> => {
     if (!stationP) {

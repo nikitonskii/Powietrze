@@ -15,6 +15,7 @@ const H: HourPoint[] = [
 
 test('AC-8: header + axis labels + bar color/opacity/height', async () => {
   await render(<HistoryChart history={H} />);
+  expect(screen.getByTestId('chart-clock')).toBeTruthy();
   expect(screen.getByText('OSTATNIE 24 GODZINY')).toBeTruthy();
   for (const l of ['12:00', '18:00', '00:00', '06:00', 'teraz']) {
     expect(screen.getByText(l)).toBeTruthy();

@@ -32,7 +32,7 @@ const wrap = (src: () => AirQualitySource) =>
     </PlaceSourceProvider>,
   );
 
-test('AC-8: renders the live reading — index, band, city, real pm25, atmosphere', async () => {
+test('spec-002 AC-8: renders the live reading — index, band, city, real pm25, atmosphere', async () => {
   await wrap(() => fakeAirSource());
   const gradient = await screen.findByTestId('gradient-background');
   expect(within(gradient).getByText('118')).toBeTruthy();
@@ -43,7 +43,7 @@ test('AC-8: renders the live reading — index, band, city, real pm25, atmospher
   expect(within(gradient).getByTestId('atmosphere')).toBeTruthy();
 });
 
-test('AC-8: shows a loading state while the source is pending', async () => {
+test('spec-002 AC-8: shows a loading state while the source is pending', async () => {
   await wrap(() => pendingAirSource());
   expect(await screen.findByTestId('teraz-loading')).toBeTruthy();
 });
