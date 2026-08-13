@@ -30,8 +30,25 @@ match the design (88px, `rgba(10,12,17,.55)`, top border) and stay.
 
 ```ts
 export type TabIconName = 'teraz' | 'miejsca' | 'ustawienia';
-// A 25×25 Skia icon stroked in `color` (stroke width 1.9, round caps/joins),
-// paths transcribed verbatim from the design (viewBox 0 0 24 24).
+
+// The three design icons as DATA (viewBox 0 0 24 24), transcribed verbatim from
+// Powietrze.dc.html:256/260/264. `paths` are raw SVG `d` strings; `circles` are
+// stroked outlines. Exported so AC-1's literal fixture can pin them, and so the
+// render body stays a small data-driven loop (≤40 lines).
+export const ICON_PATHS: Record<
+  TabIconName,
+  { paths: string[]; circles: { cx: number; cy: number; r: number }[] }
+>;
+
+// A 25×25 Skia icon. CRITICAL: pass each `d` straight to <Path path="M3 17h4…"/>
+// (string form). NEVER call Skia.Path.MakeFromSVGString / Skia.Path.* in JS —
+// the Skia Jest mock has no CanvasKit, so those throw and would crash both this
+// test AND the shipped AppNavigator tint tests (the tab bar renders TabIcon).
+// Draw inside a <Group transform={[{ scale: 25/24 }]}> so the 24-space coords
+// AND the 1.9 stroke scale up to the 25px box exactly as the SVG does. Stroke:
+// `color`, width 1.9, round cap, fill none. `testID` is forwarded onto the FIRST
+// stroked host node (skPath/skCircle) — a testID on the Canvas (a bare View under
+// the mock) would carry no `color`, making the tint unassertable.
 export function TabIcon(props: {
   name: TabIconName;
   color: string;
@@ -39,65 +56,106 @@ export function TabIcon(props: {
 }): JSX.Element;
 ```
 
+### `src/shared/tokens/index.ts` (addition)
+
+```ts
+type.tab = { size: 10.5, weight: '500', letterSpacing: 0 }; // design tab label
+```
+
 ### `src/app/TabBar.tsx` (modified)
 
 `makeTabBar(activeTints, inactiveTints?)` signature and tint logic are
-unchanged. Each item now renders `<TabIcon name={…} color={tint}/>` above the
-label. Route name → icon: `Teraz→teraz`, `Miejsca→miejsca`, `Ustawienia→ustawienia`.
+unchanged. Each item now renders `<TabIcon name={…} color={tint} testID={`icon-${route.name}`}/>`
+above the label (label styled via `type.tab`). The route→icon mapping is an
+explicit table, not an unchecked cast:
+
+```ts
+const ROUTE_ICON: Record<string, TabIconName> =
+  { Teraz: 'teraz', Miejsca: 'miejsca', Ustawienia: 'ustawienia' };
+// a route absent from the map renders no icon (label only) rather than crashing.
+```
 
 ## Behavior — Acceptance Criteria
 
 ### Icon (UI)
 
-- **AC-1** — the three design icon path sets are transcribed verbatim (literal
-  fixture — M1 retro rule). A test pins, per `TabIconName`, the exact path `d`
-  strings / circle params from `Powietrze.dc.html:256,260,264`:
-  - `teraz`: circle `cx12 cy9 r4` + path `M3 17h4M17 17h4M5 20.5h5M14 20.5h5`
-  - `miejsca`: path `M12 21s-7-6.3-7-11a7 7 0 0114 0c0 4.7-7 11-7 11z` + circle `cx12 cy10 r2.4`
-  - `ustawienia`: circle `cx12 cy12 r3` + path `M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1`
-- **AC-2** — `TabIcon` renders a 25×25 Skia canvas whose strokes use the passed
-  `color` (stroke width 1.9, round cap/join, fill none). Verified to the extent
-  the Skia jest mock exposes (element presence + forwarded `color`/stroke props);
-  the pixel look is AC-6.
+- **AC-1** — `ICON_PATHS` deep-equals the literal table transcribed verbatim
+  from `Powietrze.dc.html:256,260,264` (literal fixture — M1 retro rule):
+  - `teraz`: paths `['M3 17h4M17 17h4M5 20.5h5M14 20.5h5']`, circles `[{cx:12,cy:9,r:4}]`
+  - `miejsca`: paths `['M12 21s-7-6.3-7-11a7 7 0 0114 0c0 4.7-7 11-7 11z']`, circles `[{cx:12,cy:10,r:2.4}]`
+  - `ustawienia`: paths `['M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1']`, circles `[{cx:12,cy:12,r:3}]`
+- **AC-2** — `TabIcon name color testID` renders a 25×25 Skia `Canvas` with a
+  `Group transform={[{ scale: 25/24 }]}` containing the icon's `Path`s (each fed
+  the raw `d` **string**, not a parsed `SkPath`) and `Circle`s, all stroked
+  (`color`, `strokeWidth 1.9`, round cap, no fill). The `testID` lands on the
+  first stroked host node, so `getByTestId(testID).props.color === color` and
+  `.props.strokeWidth === 1.9`. (No `Skia.Path.*` call anywhere — it throws under
+  the mock.) Pixel look is AC-7.
 
 ### Tab bar (integration)
 
-- **AC-3** — each tab renders a `TabIcon` (route→name mapping above) **above**
-  its text label, vertically stacked with the design's `gap 4`; label is
-  `10.5px` weight `500` (was the 12px/label variant).
-- **AC-4** — the tint rule from PR #7 is preserved and applied to BOTH icon and
-  label: focused Teraz → its `activeTints.Teraz` (live key color); focused
-  Miejsca/Ustawienia → accent; unfocused Teraz → its `inactiveTints.Teraz`
-  (dimmed live tint) or gray; other unfocused → `colors.text.inactive`. The
-  existing AppNavigator tint tests (AC 006-10 and the unfocused-Teraz test)
-  still pass unchanged — the label text remains queryable and carries the tint.
-- **AC-5** — bar geometry unchanged and design-correct: height 88, background
-  `colors.tabBar.bg` (`rgba(10,12,17,.55)`), `borderTopWidth 1` /
-  `colors.tabBar.border`; each `tab-<Route>` testID preserved.
-- **AC-6** — *(manual, journal)* On the simulator the three icons render crisply
+- **AC-3** — each tab renders `<TabIcon>` (via the `ROUTE_ICON` map) **above**
+  its text label, vertically stacked with `gap 4`; the label uses the new
+  `type.tab` token (size 10.5, weight 500, letterSpacing 0 — matching the design,
+  which has no letter-spacing).
+- **AC-4** — the PR #7 tint rule is preserved and applied to BOTH icon and
+  label: focused Teraz → `activeTints.Teraz` (live key color); focused
+  Miejsca/Ustawienia → accent; unfocused Teraz → `inactiveTints.Teraz` (dimmed
+  live tint) or gray; other unfocused → `colors.text.inactive`. Asserted on the
+  icon via `within(tab).getByTestId('icon-<Route>').props.color` and on the label
+  via `colorOf`. The existing AppNavigator tint tests (AC 006-10 + the
+  unfocused-Teraz test) still pass unchanged — the icon adds no text node, so
+  `getByText('Teraz')` stays unique.
+- **AC-5** — bar geometry, design-correct: height 88, padding `10 / 0 / 24`
+  (top 10, bottom 24 — `Powietrze.dc.html:254`), background `colors.tabBar.bg`
+  (`rgba(10,12,17,.55)`), `borderTopWidth 1` / `colors.tabBar.border`; each
+  `tab-<Route>` testID preserved; the icon+label stack is centered.
+- **AC-6** — each tab `Pressable` sets `accessibilityRole="button"` and
+  `accessibilityState={{ selected: focused }}` (the icon is decorative — the
+  label carries the name — so it needs no separate a11y label).
+- **AC-7** — *(manual, journal)* On the simulator the three icons render crisply
   and tint correctly per focus (Teraz glows the live air color); screenshot into
   `docs/harness/evidence/11/`.
 
 ## Resolved ambiguities
 
-- **Icons via Skia, not `react-native-svg`.** No new dependency; Skia strokes
-  the paths directly. Each `TabIcon` is a tiny static 25×25 `Canvas` — three of
-  them in the bar is negligible cost.
+- **Icons via Skia, not `react-native-svg` or SF Symbols.** The design note
+  (README §Assets) suggests SF Symbols in native; under the "no new libraries"
+  constraint we stroke the design's own SVG paths with Skia (already on board).
+  Each `TabIcon` is a tiny static 25×25 `Canvas` — three in the bar is negligible.
+- **String-form paths only.** Paths are passed as raw `d` strings to `<Path path=…/>`;
+  we never call `Skia.Path.MakeFromSVGString`/`Skia.Path.*` in JS, because the
+  Skia Jest mock has no CanvasKit and those throw — which would crash both the
+  icon test and the shipped AppNavigator tint tests (the bar renders `TabIcon`).
+- **24→25 scale.** The paths are in a 24 viewBox but the icon box is 25px, so a
+  `Group transform={[{ scale: 25/24 }]}` wraps them — this scales the coordinates
+  AND the 1.9 stroke together (1.9→~1.98), exactly as an SVG `preserveAspectRatio`
+  fit would, rather than drawing 24-space coords ~4% small in a 25px box.
+- **testID on the stroked node.** Under the mock the `Canvas` is a bare `View`
+  (no `color`), while `Path`/`Circle` render as host nodes that preserve props;
+  so `TabIcon` forwards its `testID` onto the first stroked element to make the
+  tint assertable.
 - **Label kept alongside the icon.** The design shows icon + label; keeping the
   text label also means the PR #7 tint tests (which query the label text) keep
-  working — the icon is additive.
+  working — the icon is additive and adds no second text node.
 - **No blur.** See Non-goals; the translucent color stays.
-- **Icon path literals live in `TabIcon.tsx`** (a UI asset module), pinned by
-  the AC-1 fixture test. They contain no color literals (tint is a prop), so the
-  no-hex lint is unaffected.
+- **`teraz` icon stroke.** The design gives it `linecap round` only (no
+  `linejoin`); harmless (its path is straight segments + a circle, no joins), so
+  a uniform round cap/join is fine — noted for fidelity.
+- **Icon path literals live in `TabIcon.tsx`** as the exported `ICON_PATHS`
+  table, pinned by the AC-1 fixture. They contain no color literals (tint is a
+  prop), so the no-hex lint is unaffected.
 
 ## Verification
 
 - **AC-1** (icon literals): fixture test in `src/shared/ui/__tests__/TabIcon.test.tsx`
-  pinning the three path/circle definitions.
-- **AC-2** (icon render): same file — assert the icon renders and forwards the
-  `color`/stroke props the Skia mock exposes.
-- **AC-3..AC-5** (tab bar): extend `src/app/__tests__/*` — assert each tab has a
-  `TabIcon` + label, the label is 10.5/500, tint applies to both, geometry
-  unchanged; confirm the existing PR #7 tint tests still pass.
-- **AC-6** (manual): simulator screenshot in the milestone journal.
+  deep-equalling `ICON_PATHS` against the pinned table.
+- **AC-2** (icon render): same file — render `<TabIcon testID="icon-x"/>`, assert
+  `getByTestId('icon-x').props.color`/`.strokeWidth` on the stroked host node; the
+  paths are string-form (no `Skia.Path.*`).
+- **AC-3..AC-6** (tab bar): extend `src/app/__tests__/*` — each tab has a
+  `TabIcon` (`icon-<Route>`) + label using `type.tab`; tint asserted on BOTH the
+  icon (`.props.color`) and label (`colorOf`); geometry (height 88, padding
+  10/0/24); `accessibilityState.selected`. Confirm the existing PR #7 tint tests
+  (`AppNavigator.test.tsx`) still pass unchanged.
+- **AC-7** (manual): simulator screenshot in the milestone journal.
