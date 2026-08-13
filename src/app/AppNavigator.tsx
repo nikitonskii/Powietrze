@@ -1,4 +1,8 @@
-import { NavigationContainer } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  DefaultTheme,
+  type Theme,
+} from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { scene } from '../core/scene';
 import { colors } from '../shared/tokens';
@@ -9,6 +13,14 @@ import { UstawieniaScreen } from '../features/ustawienia/UstawieniaScreen';
 import { makeTabBar } from './TabBar';
 
 const Tab = createBottomTabNavigator();
+
+// Dark root theme so nothing behind the (now-floating, translucent) tab bar or
+// between scenes flashes the default light-gray — the bar reads as glass over
+// the live scene, not a gray slab.
+const navTheme: Theme = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: colors.base },
+};
 
 export function AppNavigator() {
   const { reading } = useActivePlace();
@@ -21,11 +33,16 @@ export function AppNavigator() {
     { Teraz: reading ? `${scene(reading.index).key}99` : colors.text.inactive },
   );
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navTheme}>
       <Tab.Navigator
         initialRouteName="Teraz"
         tabBar={tabBar}
-        screenOptions={{ headerShown: false }}
+        screenOptions={{
+          headerShown: false,
+          // Scenes paint their own full-bleed background; keep the container
+          // transparent so the floating tab bar shows the live scene through it.
+          sceneStyle: { backgroundColor: 'transparent' },
+        }}
       >
         <Tab.Screen name="Teraz" component={TerazScreen} />
         <Tab.Screen name="Miejsca" component={MiejscaScreen} />

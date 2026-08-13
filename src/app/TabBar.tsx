@@ -52,6 +52,12 @@ export function makeTabBar(
 }
 const styles = StyleSheet.create({
   bar: {
+    // Float over the scene so the live atmosphere shows through the translucent
+    // background — a glass bar, not an opaque slab over a gray backdrop.
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
     height: 88,
     paddingTop: 10,
