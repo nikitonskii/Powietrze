@@ -26,3 +26,5 @@ export function formatFreshness(measuredAt: string, now: Date): string {
   if (mins < 60) return `${mins} min temu`;
   return `${Math.floor(mins / 60)} godz temu`;
 }
+
+export * from './history';
