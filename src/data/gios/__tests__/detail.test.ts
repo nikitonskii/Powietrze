@@ -1,0 +1,124 @@
+import { createStationSource, createNearestStationSource } from '../source';
+import { KRAKOW_STATION } from '../constants';
+import sensors400 from '../__fixtures__/sensors400.json';
+import pm25_26 from '../__fixtures__/getData_pm25_26.json';
+import pm10 from '../__fixtures__/getData_pm10.json';
+import no2 from '../__fixtures__/getData_no2.json';
+import type { Geolocation } from '../../../core/geo';
+
+// Routes fetchImpl calls to fixtures by URL substring. `rejectContaining`
+// substrings make the fetch call itself reject (simulating a network/HTTP
+// failure), independent of the successful routes.
+function makeFetch(
+  routes: Record<string, object>,
+  rejectContaining: string[] = [],
+): { fetchImpl: typeof fetch; calls: string[] } {
+  const calls: string[] = [];
+  const fetchImpl = ((url: string) => {
+    calls.push(url);
+    if (rejectContaining.some(s => url.includes(s))) {
+      return Promise.reject(new Error(`boom: ${url}`));
+    }
+    const key = Object.keys(routes).find(k => url.includes(k));
+    if (!key) return Promise.reject(new Error(`no route stubbed: ${url}`));
+    return Promise.resolve({ json: () => Promise.resolve(routes[key]) });
+  }) as unknown as typeof fetch;
+  return { fetchImpl, calls };
+}
+
+const KRAKOW_ROUTES = {
+  '/station/sensors/400': sensors400,
+  '/data/getData/2752': pm25_26,
+  '/data/getData/2750': pm10,
+  '/data/getData/2747': no2,
+};
+
+// sensors400 minus the NO2 entry (id 2747) — station has PM2.5 + PM10 only.
+const sensorsNoNo2 = {
+  'Lista stanowisk pomiarowych dla podanej stacji': (
+    sensors400 as unknown as {
+      'Lista stanowisk pomiarowych dla podanej stacji': {
+        'Wskaźnik - kod': string;
+      }[];
+    }
+  )['Lista stanowisk pomiarowych dla podanej stacji'].filter(
+    e => e['Wskaźnik - kod'] !== 'NO2',
+  ),
+};
+
+describe('AC-6: getDetail composes history + PM10/NO2', () => {
+  test('resolves history, pm10, no2 and fetches the PM2.5 series with size=100', async () => {
+    const { fetchImpl, calls } = makeFetch(KRAKOW_ROUTES);
+    const detail = await createStationSource(
+      KRAKOW_STATION,
+      fetchImpl,
+    ).getDetail();
+
+    expect(detail.history.length).toBe(24);
+    expect(detail.history[0].at).toBe('2026-08-11 23:00:00'); // oldest
+    expect(detail.history[23].at).toBe('2026-08-12 22:00:00'); // newest
+    expect(detail.pm10).toBe(30);
+    expect(detail.no2).toBe(22);
+
+    const pm25Call = calls.find(u => u.includes('/data/getData/2752'));
+    expect(pm25Call).toContain('size=100');
+  });
+
+  test('missing NO2 sensor → no2 undefined, history + pm10 still present', async () => {
+    const { fetchImpl } = makeFetch({
+      '/station/sensors/400': sensorsNoNo2,
+      '/data/getData/2752': pm25_26,
+      '/data/getData/2750': pm10,
+    });
+    const detail = await createStationSource(
+      KRAKOW_STATION,
+      fetchImpl,
+    ).getDetail();
+
+    expect(detail.no2).toBeUndefined();
+    expect(detail.history.length).toBe(24);
+    expect(detail.pm10).toBe(30);
+  });
+});
+
+describe('AC-6b: per-pollutant failure isolation — getDetail never rejects', () => {
+  test('NO2 fetch rejects → no2 undefined, history + pm10 present', async () => {
+    const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2747']);
+    const source = createStationSource(KRAKOW_STATION, fetchImpl);
+    await expect(source.getDetail()).resolves.toEqual(
+      expect.objectContaining({ no2: undefined, pm10: 30 }),
+    );
+    const detail = await source.getDetail();
+    expect(detail.history.length).toBe(24);
+  });
+
+  test('PM2.5 fetch rejects → history: [], pm10/no2 present', async () => {
+    const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2752']);
+    const source = createStationSource(KRAKOW_STATION, fetchImpl);
+    const detail = await source.getDetail();
+    expect(detail.history).toEqual([]);
+    expect(detail.pm10).toBe(30);
+    expect(detail.no2).toBe(22);
+  });
+});
+
+describe('AC-6c: nearest source location fallback shares the resolved station', () => {
+  test('geo rejects → Kraków fallback station used by both getDetail and getCurrentReading', async () => {
+    const { fetchImpl } = makeFetch(KRAKOW_ROUTES);
+    const getCurrentPosition = jest.fn(async () => {
+      throw new Error('permission denied');
+    });
+    const denied: Geolocation = { getCurrentPosition };
+
+    const source = createNearestStationSource(denied, fetchImpl);
+    const detail = await source.getDetail();
+    expect(detail.history.length).toBe(24);
+
+    const reading = await source.getCurrentReading();
+    expect(reading.city).toBe('Kraków');
+    expect(reading.station).toBe('Aleja Krasińskiego · stacja GIOŚ');
+
+    // Station resolution (geo call) is memoized/shared across getDetail + getCurrentReading.
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+  });
+});

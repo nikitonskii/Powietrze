@@ -1,0 +1,134 @@
+{
+ "Lista danych pomiarowych": [
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 22:00:00",
+   "Wartość": 12.1
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 21:00:00",
+   "Wartość": 11.8
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 20:00:00",
+   "Wartość": 10.9
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 19:00:00",
+   "Wartość": 10.2
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 18:00:00",
+   "Wartość": 9.8
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 17:00:00",
+   "Wartość": 9.1
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 16:00:00",
+   "Wartość": 8.7
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 15:00:00",
+   "Wartość": 8.3
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 14:00:00",
+   "Wartość": 7.9
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 13:00:00",
+   "Wartość": 7.4
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 12:00:00",
+   "Wartość": 7
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 11:00:00",
+   "Wartość": 6.6
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 10:00:00",
+   "Wartość": 6.1
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 09:00:00",
+   "Wartość": 5.9
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 08:00:00",
+   "Wartość": 5.7
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 07:00:00",
+   "Wartość": 5.6
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 06:00:00",
+   "Wartość": 5.4
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 05:00:00",
+   "Wartość": 5.2
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 04:00:00",
+   "Wartość": 5.9
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 03:00:00",
+   "Wartość": 6.3
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 02:00:00",
+   "Wartość": 6.8
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 01:00:00",
+   "Wartość": 7.2
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-12 00:00:00",
+   "Wartość": 7.9
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-11 23:00:00",
+   "Wartość": 8.6
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-11 22:00:00",
+   "Wartość": 9.3
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
+   "Data": "2026-08-11 21:00:00",
+   "Wartość": 10.1
+  }
+ ]
+}
