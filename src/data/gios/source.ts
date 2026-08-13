@@ -115,38 +115,37 @@ export function createNearestStationSource(
   geo: Geolocation,
   fetchImpl: typeof fetch = fetch,
 ): AirQualitySource {
-  let stationP: Promise<Station> | null = null;
-  const resolveStation = (): Promise<Station> => {
-    if (!stationP) {
-      stationP = (async () => {
+  // Resolve+validate ONCE: geo → nearest → read it. On ANY failure (denied,
+  // geo/stations error, OR the nearest station has no usable reading) fall back
+  // to Kraków — station AND reading together. Memoized so getCurrentReading and
+  // getDetail share the SAME committed station (and the fallback), so the Hero
+  // and the chart/tiles can never show different stations. The probe reading is
+  // cached, so getCurrentReading needs no second fetch.
+  let resolvedP: Promise<{ station: Station; reading: Reading }> | null = null;
+  const resolve = () => {
+    if (!resolvedP) {
+      resolvedP = (async () => {
         try {
           const { lat, lon } = await geo.getCurrentPosition();
           const stations = await fetchStations(fetchImpl);
-          return nearestStation(lat, lon, stations);
+          const station = nearestStation(lat, lon, stations);
+          return { station, reading: await readStation(station, fetchImpl) };
         } catch (e) {
           if (__DEV__) {
-            console.warn('[nearest] location failed; using Kraków:', e);
+            console.warn('[nearest] falling back to Kraków:', e);
           }
-          return KRAKOW_STATION;
+          return {
+            station: KRAKOW_STATION,
+            reading: await readStation(KRAKOW_STATION, fetchImpl),
+          };
         }
       })();
     }
-    return stationP;
+    return resolvedP;
   };
 
   return {
-    async getCurrentReading(): Promise<Reading> {
-      const station = await resolveStation();
-      try {
-        return await readStation(station, fetchImpl);
-      } catch (e) {
-        if (__DEV__) {
-          console.warn('[nearest] reading failed; showing Kraków:', e);
-        }
-        return readStation(KRAKOW_STATION, fetchImpl);
-      }
-    },
-    getDetail: () =>
-      resolveStation().then(station => detailFor(station, fetchImpl)),
+    getCurrentReading: async () => (await resolve()).reading,
+    getDetail: async () => detailFor((await resolve()).station, fetchImpl),
   };
 }

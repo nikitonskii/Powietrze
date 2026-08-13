@@ -130,4 +130,33 @@ describe('AC-6c: nearest source location fallback shares the resolved station', 
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     expect(calls.filter(u => u.includes('/station/findAll')).length).toBe(1);
   });
+
+  test('geo succeeds but the nearest station has no usable reading → BOTH reading and detail fall back to Kraków (consistent, not empty)', async () => {
+    // Warszawa (530) is nearest, but reading it fails (its sensors call rejects);
+    // Kraków (400) is healthy. Regression guard: getDetail must fall back with
+    // getCurrentReading, never render the empty (unreadable) nearest station.
+    const { fetchImpl } = makeFetch(
+      {
+        '/station/findAll': realStations,
+        '/station/sensors/400': sensors400,
+        '/data/getData/2752': pm25_26,
+        '/data/getData/2750': pm10,
+        '/data/getData/2747': no2,
+      },
+      ['/station/sensors/530'], // reading the nearest (Warszawa) station fails
+    );
+    const getCurrentPosition = jest.fn(async () => ({ lat: 52.22, lon: 21.0 }));
+    const source = createNearestStationSource(
+      { getCurrentPosition },
+      fetchImpl,
+    );
+
+    const reading = await source.getCurrentReading();
+    const detail = await source.getDetail!();
+
+    expect(reading.city).toBe('Kraków'); // hero fell back to Kraków
+    expect(detail.history.length).toBe(24); // detail followed — NOT empty
+    expect(detail.pm10).toBe(30);
+    expect(detail.no2).toBe(22);
+  });
 });

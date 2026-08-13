@@ -26,7 +26,21 @@ The 24h chart needs data GIOŚ **already returns**: `data/getData/{sensor}` is a
 - **AC-1..3** (history math) ✓ · **AC-4..6c** (mappers + getDetail: allSettled isolation, geo-fallback consistency) ✓ · **AC-7** (usePlaceDetail) ✓ · **AC-8..9** (chart + tiles) ✓ · **AC-10** (scrollable Teraz) ✓.
 - **AC-11 (manual):** Teraz shows the 24h chart (bars colored per hour, fading toward "teraz") + real PM10/NO₂ under the hero — see evidence below.
 
-<!-- MANUAL EVIDENCE (append after sim): docs/harness/evidence/12/ + live ?size=100 length note. -->
+### AC-11 — VERIFIED on-device (2026-08-13, after the fix below)
+`docs/harness/evidence/12/teraz-chart-live.png` — Teraz shows the 24h chart with a full row of 24 bars (uniform min-height + brightening toward "teraz", correct for a clean-air day at index 3) and the tiles with **real live GIOŚ values: PM10 13.1, NO₂ 28.5** (matching the API). The manual AC did its job — it caught a real bug (below) that all the automated gates missed.
+
+### Live-data bug caught by AC-11, then fixed (commit follows)
+**Symptom:** first sim run rendered the chart card + clock icon + tiles (UI correct) but with empty bars and `—` tiles, despite the API returning valid data.
+**Root cause:** the nearest/location source's B1 fix was incomplete. `getCurrentReading` had TWO fallbacks (geo failure → Kraków, AND `readStation(resolved)` failure → Kraków), but `getDetail` shared only the first. On the sim, geo resolves to a location whose nearest station has no usable reading → the Hero fell back to Kraków while `getDetail` stayed on that empty station → empty chart + `—` tiles. (In production from Kraków it wouldn't manifest — nearest = a real station with data — which is why fixtures/tests missed it.)
+**Fix:** resolve+validate the station **once** — geo → nearest → probe `readStation`; on ANY failure fall back to Kraków (station AND cached reading together). `getCurrentReading` returns the cached reading; `getDetail` uses the same committed station. Now the Hero and the chart/tiles can never disagree, and a fall-back is total for both. Regression test added: geo succeeds but the nearest station's reading fails → both reading and detail fall back to Kraków (24-bar history + real tiles, not empty).
+**Reusable gotcha:** when two data paths (headline vs detail) share a "nearest/fallback" resolution, they must share the SAME committed result — validating the resolution once (probe + cache) beats each path applying its own partial fallback. A device-only path (geo giving a real, non-Kraków location) exposed what every fixture-based test hid — the manual sim AC is the net for exactly this class, as with the M-loc `findAll` pagination bug.
+
+### (superseded) first-run note — AC-11 PARTIAL, live-data bug found
+Screenshot: `docs/harness/evidence/12/teraz-chart-ui.png` (iPhone 16 Pro sim, this branch via Metro).
+- **UI VERIFIED:** the "OSTATNIE 24 GODZINY" glass card (with the design clock icon), the axis labels `12:00/18:00/00:00/06:00/teraz`, and the `PM10`/`NO₂` tiles all render per the design, under the hero (Kraków, index 3, Bardzo dobry). Composition/scroll/wiring all work.
+- **LIVE-DATA BUG (open):** the chart bars are empty and the tiles show `—` — `getDetail` resolved with `{ history: [], pm10: undefined, no2: undefined }` even though the GIOŚ API returns valid data. Verified live via curl: `data/getData/2752?size=100` → 59 hourly points; station 400 sensors include PM10=2750, NO2=2747; latest PM10=13.1, NO2=28.5.
+- **Ruled out:** API/endpoint failure, `?size=100` (200, 59 pts), missing sensors, and rate-limiting (12 concurrent requests all 200). Pure functions are unit-tested against this exact JSON shape. So the fault is device-runtime-only, and the all-three-empty signature points at `detailFor`'s sensors lookup returning empty on device while `getCurrentReading`'s identical fetch succeeds (hero shows PM2.5).
+- **Blocked on observability:** RN 0.86 routes app `console`/warnings to the on-device LogBox, not Metro stdout, so the device logs aren't readable from the harness. Needs the RN debugger (network/console) or a temporary on-screen diagnostic to pin the root cause. NOT yet fixed.
 
 ## Deferred (non-blocking)
 - Miejsca trend arrows (can reuse this history data).
