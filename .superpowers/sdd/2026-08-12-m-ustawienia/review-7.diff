@@ -1,0 +1,157 @@
+### commits
+96adc85 feat(shared): settings context, functional-updater persistence (AC-10..12)
+
+### stat
+ src/shared/settings/__tests__/context.test.tsx | 78 ++++++++++++++++++++++++++
+ src/shared/settings/index.tsx                  | 58 +++++++++++++++++++
+ 2 files changed, 136 insertions(+)
+
+### diff
+diff --git a/src/shared/settings/__tests__/context.test.tsx b/src/shared/settings/__tests__/context.test.tsx
+new file mode 100644
+index 0000000..3688e3e
+--- /dev/null
++++ b/src/shared/settings/__tests__/context.test.tsx
+@@ -0,0 +1,78 @@
++import { renderHook, act, waitFor } from '@testing-library/react-native';
++import { SettingsProvider, useSettings } from '..';
++import {
++  DEFAULT_SETTINGS,
++  type Settings,
++  type SettingsStore,
++} from '../../../core/settings';
++
++const fakeStore = (initial: Settings = DEFAULT_SETTINGS) => {
++  const saved: Settings[] = [];
++  const store: SettingsStore = {
++    load: async () => initial,
++    save: async s => {
++      saved.push(s);
++    },
++  };
++  return { store, saved };
++};
++const wrap = (store: SettingsStore) =>
++  function Wrapper({ children }: { children: React.ReactNode }) {
++    return <SettingsProvider store={store}>{children}</SettingsProvider>;
++  };
++
++// renderHook (v14) resolves only once pending effects/microtasks settle, so a
++// synchronously-resolving fake store would already be hydrated by the time
++// `await renderHook(...)` returns. A deferred load lets us observe the real
++// pre-hydration state before resolving it under `act`.
++test('AC-10: starts at DEFAULT_SETTINGS then hydrates from store', async () => {
++  let resolveLoad!: (s: Settings) => void;
++  const loadPromise = new Promise<Settings>(resolve => {
++    resolveLoad = resolve;
++  });
++  const store: SettingsStore = {
++    load: () => loadPromise,
++    save: async () => {},
++  };
++  const { result } = await renderHook(() => useSettings(), {
++    wrapper: wrap(store),
++  });
++  expect(result.current.settings).toEqual(DEFAULT_SETTINGS); // pre-hydration
++
++  await act(() => resolveLoad({ ...DEFAULT_SETTINGS, alert: false }));
++  expect(result.current.settings.alert).toBe(false); // hydrated
++});
++
++test('AC-11: set updates state and persists the full settings', async () => {
++  const { store, saved } = fakeStore();
++  const { result } = await renderHook(() => useSettings(), {
++    wrapper: wrap(store),
++  });
++  await waitFor(() =>
++    expect(result.current.settings).toEqual(DEFAULT_SETTINGS),
++  );
++  await act(() => result.current.set('alert', false));
++  expect(result.current.settings.alert).toBe(false);
++  expect(saved.at(-1)).toEqual({ ...DEFAULT_SETTINGS, alert: false });
++});
++
++test('AC-12: successive set calls compose (functional updater)', async () => {
++  const { store, saved } = fakeStore();
++  const { result } = await renderHook(() => useSettings(), {
++    wrapper: wrap(store),
++  });
++  await waitFor(() =>
++    expect(result.current.settings).toEqual(DEFAULT_SETTINGS),
++  );
++  await act(() => {
++    result.current.set('alert', false);
++    result.current.set('morning', true);
++  });
++  expect(result.current.settings.alert).toBe(false);
++  expect(result.current.settings.morning).toBe(true);
++  expect(saved.at(-1)).toEqual({
++    ...DEFAULT_SETTINGS,
++    alert: false,
++    morning: true,
++  });
++});
+diff --git a/src/shared/settings/index.tsx b/src/shared/settings/index.tsx
+new file mode 100644
+index 0000000..1ec61e6
+--- /dev/null
++++ b/src/shared/settings/index.tsx
+@@ -0,0 +1,58 @@
++import {
++  createContext,
++  useContext,
++  useEffect,
++  useMemo,
++  useState,
++  type ReactNode,
++} from 'react';
++import {
++  DEFAULT_SETTINGS,
++  type Settings,
++  type SettingsStore,
++} from '../../core/settings';
++
++export interface SettingsApi {
++  settings: Settings;
++  set: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
++}
++
++const Ctx = createContext<SettingsApi | null>(null);
++
++// Loads settings from the injected store on mount; set persists on change.
++export function SettingsProvider({
++  store,
++  children,
++}: {
++  store: SettingsStore;
++  children: ReactNode;
++}) {
++  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
++  useEffect(() => {
++    let on = true;
++    store.load().then(s => on && setSettings(s));
++    return () => {
++      on = false;
++    };
++  }, [store]);
++
++  const value = useMemo<SettingsApi>(
++    () => ({
++      settings,
++      set: (key, val) =>
++        setSettings(prev => {
++          const next = { ...prev, [key]: val };
++          store.save(next);
++          return next;
++        }),
++    }),
++    [settings, store],
++  );
++  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
++}
++
++export function useSettings(): SettingsApi {
++  const v = useContext(Ctx);
++  if (!v) throw new Error('useSettings: wrap the tree in <SettingsProvider>');
++  return v;
++}

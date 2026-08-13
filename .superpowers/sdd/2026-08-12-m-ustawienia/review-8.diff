@@ -1,0 +1,451 @@
+### commits
+6b57d66 feat(ustawienia): full settings screen wired to persisted store (AC-17..22)
+
+### stat
+ src/app/__tests__/AppNavigator.test.tsx            |  32 ++--
+ src/features/ustawienia/SettingRow.tsx             |  51 +++++++
+ src/features/ustawienia/UstawieniaScreen.tsx       | 164 +++++++++++++++++++--
+ .../ustawienia/__tests__/UstawieniaScreen.test.tsx | 117 +++++++++++++++
+ 4 files changed, 345 insertions(+), 19 deletions(-)
+
+### diff
+diff --git a/src/app/__tests__/AppNavigator.test.tsx b/src/app/__tests__/AppNavigator.test.tsx
+index 22dc676..0b6994f 100644
+--- a/src/app/__tests__/AppNavigator.test.tsx
++++ b/src/app/__tests__/AppNavigator.test.tsx
+@@ -1,52 +1,66 @@
+ import {
+   render,
+   screen,
+   fireEvent,
+   within,
+ } from '@testing-library/react-native';
++import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { AppNavigator } from '../AppNavigator';
+ import {
+   PlaceSourceProvider,
+   ActivePlaceProvider,
+   FavoritesProvider,
+   StationsProvider,
+ } from '../../shared/place';
++import { SettingsProvider } from '../../shared/settings';
+ import type { FavoritesStore } from '../../core/places';
++import { DEFAULT_SETTINGS, type SettingsStore } from '../../core/settings';
+ import {
+   fakeAirSource,
+   pendingAirSource,
+ } from '../../shared/test/fakeAirSource';
+ import { scene } from '../../core/scene';
+ import { colors } from '../../shared/tokens';
+ import { colorOf } from '../../shared/test/colorOf';
+ 
+ // The Miejsca tab renders the real MiejscaScreen, which needs the favorites +
+ // stations providers too.
+ const emptyStore: FavoritesStore = {
+   load: async () => [],
+   save: async () => {},
+ };
+ 
++// The Ustawienia tab renders the real UstawieniaScreen, which needs a
++// settings store too.
++const settingsStore: SettingsStore = {
++  load: async () => DEFAULT_SETTINGS,
++  save: async () => {},
++};
++
+ const renderNav = () =>
+   render(
+-    <StationsProvider stations={[]}>
+-      <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
+-        <FavoritesProvider store={emptyStore}>
+-          <ActivePlaceProvider>
+-            <AppNavigator />
+-          </ActivePlaceProvider>
+-        </FavoritesProvider>
+-      </PlaceSourceProvider>
+-    </StationsProvider>,
++    <GestureHandlerRootView>
++      <StationsProvider stations={[]}>
++        <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
++          <FavoritesProvider store={emptyStore}>
++            <ActivePlaceProvider>
++              <SettingsProvider store={settingsStore}>
++                <AppNavigator />
++              </SettingsProvider>
++            </ActivePlaceProvider>
++          </FavoritesProvider>
++        </PlaceSourceProvider>
++      </StationsProvider>
++    </GestureHandlerRootView>,
+   );
+ 
+ test('AC-9: three tabs, Teraz active, hero visible', async () => {
+   await renderNav();
+   expect(screen.getByTestId('tab-Teraz')).toBeTruthy();
+   expect(screen.getByTestId('tab-Miejsca')).toBeTruthy();
+   expect(screen.getByTestId('tab-Ustawienia')).toBeTruthy();
+   expect(await screen.findByText('TWOJA LOKALIZACJA')).toBeTruthy();
+   expect(await screen.findByText('118')).toBeTruthy();
+ });
+ 
+ test('AC-10: tapping tabs switches to placeholder screens', async () => {
+diff --git a/src/features/ustawienia/SettingRow.tsx b/src/features/ustawienia/SettingRow.tsx
+new file mode 100644
+index 0000000..9d071b7
+--- /dev/null
++++ b/src/features/ustawienia/SettingRow.tsx
+@@ -0,0 +1,51 @@
++import { View, Text, StyleSheet, type ViewStyle } from 'react-native';
++import { colors } from '../../shared/tokens';
++
++export function SettingRow({
++  keyName,
++  title,
++  subtitle,
++  soon,
++  value,
++  trailing,
++}: {
++  keyName: string;
++  title: string;
++  subtitle?: string;
++  soon?: boolean;
++  value?: string; // static right-aligned value (dim) — mutually exclusive with trailing
++  trailing?: React.ReactNode; // a control (Toggle)
++}) {
++  return (
++    <View testID={`setting-${keyName}`} style={styles.row}>
++      <View style={styles.left}>
++        <View style={styles.titleLine}>
++          <Text style={styles.title}>{title}</Text>
++          {soon && (
++            <Text testID={`wkrotce-${keyName}`} style={styles.soon}>
++              Wkrótce
++            </Text>
++          )}
++        </View>
++        {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
++      </View>
++      {trailing ?? (value ? <Text style={styles.value}>{value}</Text> : null)}
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  row: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    paddingVertical: 15,
++    paddingHorizontal: 16,
++  } as ViewStyle,
++  left: { flex: 1, marginRight: 12 },
++  titleLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
++  title: { fontSize: 15, color: colors.text.primary },
++  soon: { fontSize: 11, color: colors.text.faint },
++  subtitle: { fontSize: 12, color: colors.text.inactive, marginTop: 2 },
++  value: { fontSize: 15, color: colors.text.dim },
++});
+diff --git a/src/features/ustawienia/UstawieniaScreen.tsx b/src/features/ustawienia/UstawieniaScreen.tsx
+index 9d2138c..886e1f7 100644
+--- a/src/features/ustawienia/UstawieniaScreen.tsx
++++ b/src/features/ustawienia/UstawieniaScreen.tsx
+@@ -1,21 +1,165 @@
+-import { StyleSheet, View } from 'react-native';
+-import { Text } from '../../shared/ui/Text';
++import type { ReactNode } from 'react';
++import { ScrollView, StyleSheet, Text, View } from 'react-native';
++import { SettingsGroup } from '../../shared/ui/SettingsGroup';
++import { Toggle } from '../../shared/ui/Toggle';
++import { SegmentedControl } from '../../shared/ui/SegmentedControl';
++import { ThresholdSlider } from '../../shared/ui/ThresholdSlider';
+ import { colors } from '../../shared/tokens';
++import { useSettings } from '../../shared/settings';
++import { SettingRow } from './SettingRow';
++
++// A row whose control sits below its title (segmented control / slider).
++function StackedRow({
++  keyName,
++  title,
++  soon,
++  children,
++}: {
++  keyName: string;
++  title: string;
++  soon?: boolean;
++  children: ReactNode;
++}) {
++  return (
++    <View testID={`setting-${keyName}`} style={styles.stacked}>
++      <View style={styles.titleLine}>
++        <Text style={styles.title}>{title}</Text>
++        {soon && (
++          <Text testID={`wkrotce-${keyName}`} style={styles.soon}>
++            Wkrótce
++          </Text>
++        )}
++      </View>
++      {children}
++    </View>
++  );
++}
+ 
+ export function UstawieniaScreen() {
++  const { settings, set } = useSettings();
+   return (
+-    <View testID="screen-ustawienia" style={styles.center}>
+-      <Text variant="city" color={colors.text.mid}>
+-        Ustawienia
++    <ScrollView
++      testID="screen-ustawienia"
++      style={styles.screen}
++      contentContainerStyle={styles.content}
++    >
++      <Text style={styles.header}>Ustawienia</Text>
++
++      <SettingsGroup label="LOKALIZACJA">
++        <SettingRow
++          keyName="loc"
++          title="Użyj mojej lokalizacji"
++          soon
++          trailing={
++            <Toggle
++              testID="toggle-loc"
++              value={settings.loc}
++              onValueChange={v => set('loc', v)}
++            />
++          }
++        />
++        <StackedRow keyName="precision" title="Dokładność" soon>
++          <SegmentedControl
++            testID="seg-precision"
++            options={['Przybliżona', 'Dokładna'] as const}
++            value={settings.precision}
++            onChange={v => set('precision', v)}
++          />
++        </StackedRow>
++      </SettingsGroup>
++
++      <SettingsGroup label="POWIADOMIENIA">
++        <SettingRow
++          keyName="alert"
++          title="Alert smogowy"
++          soon
++          trailing={
++            <Toggle
++              testID="toggle-alert"
++              value={settings.alert}
++              onValueChange={v => set('alert', v)}
++            />
++          }
++        />
++        <StackedRow keyName="threshold" title="Próg alertu" soon>
++          <ThresholdSlider
++            testID="slider-threshold"
++            value={settings.threshold}
++            onChange={v => set('threshold', v)}
++          />
++        </StackedRow>
++        <SettingRow
++          keyName="quiet"
++          title="Godziny ciszy"
++          soon
++          value="22:00 – 07:00"
++        />
++        <SettingRow
++          keyName="morning"
++          title="Poranne podsumowanie"
++          subtitle="07:30"
++          soon
++          trailing={
++            <Toggle
++              testID="toggle-morning"
++              value={settings.morning}
++              onValueChange={v => set('morning', v)}
++            />
++          }
++        />
++      </SettingsGroup>
++
++      <SettingsGroup label="WIDŻET I WYGLĄD">
++        <SettingRow
++          keyName="widget"
++          title="Stacja widżetu"
++          soon
++          value="Automatyczna"
++        />
++        <StackedRow keyName="scale" title="Skala indeksu" soon>
++          <SegmentedControl
++            testID="seg-scale"
++            options={['CAQI', 'US AQI', 'µg/m³'] as const}
++            value={settings.scale}
++            onChange={v => set('scale', v)}
++          />
++        </StackedRow>
++      </SettingsGroup>
++
++      <SettingsGroup label="DANE">
++        <SettingRow keyName="source" title="Źródło" value="GIOŚ" />
++        <SettingRow
++          keyName="refresh"
++          title="Częstotliwość odświeżania"
++          value="15 min"
++        />
++      </SettingsGroup>
++
++      <Text style={styles.footer}>Dane: GIOŚ · Open-Meteo</Text>
++      <Text style={styles.footer}>
++        Bez konta. Ulubione zostają na telefonie.
+       </Text>
+-    </View>
++    </ScrollView>
+   );
+ }
++
+ const styles = StyleSheet.create({
+-  center: {
+-    flex: 1,
++  screen: { flex: 1, backgroundColor: colors.base },
++  content: { paddingTop: 64, paddingHorizontal: 18, paddingBottom: 130 },
++  header: { fontSize: 32, fontWeight: '600', color: colors.text.primary },
++  stacked: { paddingVertical: 15, paddingHorizontal: 16 },
++  titleLine: {
++    flexDirection: 'row',
+     alignItems: 'center',
+-    justifyContent: 'center',
+-    backgroundColor: colors.base,
++    gap: 8,
++    marginBottom: 12,
++  },
++  title: { fontSize: 15, color: colors.text.primary },
++  soon: { fontSize: 11, color: colors.text.faint },
++  footer: {
++    fontSize: 11.5,
++    color: colors.text.footer,
++    textAlign: 'center',
++    marginTop: 4,
+   },
+ });
+diff --git a/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx b/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
+new file mode 100644
+index 0000000..1f09e27
+--- /dev/null
++++ b/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
+@@ -0,0 +1,117 @@
++import {
++  render,
++  screen,
++  fireEvent,
++  waitFor,
++} from '@testing-library/react-native';
++import { StyleSheet } from 'react-native';
++import { GestureHandlerRootView } from 'react-native-gesture-handler';
++import { UstawieniaScreen } from '../UstawieniaScreen';
++import { SettingsProvider } from '../../../shared/settings';
++import {
++  DEFAULT_SETTINGS,
++  type Settings,
++  type SettingsStore,
++} from '../../../core/settings';
++
++const store = (
++  initial: Settings = DEFAULT_SETTINGS,
++): SettingsStore & { saved: Settings[] } => {
++  const saved: Settings[] = [];
++  return {
++    saved,
++    load: async () => initial,
++    save: async s => {
++      saved.push(s);
++    },
++  };
++};
++const renderScreen = (s: SettingsStore) =>
++  render(
++    <GestureHandlerRootView>
++      <SettingsProvider store={s}>
++        <UstawieniaScreen />
++      </SettingsProvider>
++    </GestureHandlerRootView>,
++  );
++
++test('AC-17: header + four section labels in order', async () => {
++  await renderScreen(store());
++  for (const label of [
++    'Ustawienia',
++    'LOKALIZACJA',
++    'POWIADOMIENIA',
++    'WIDŻET I WYGLĄD',
++    'DANE',
++  ]) {
++    expect(screen.getByText(label)).toBeTruthy();
++  }
++});
++
++test('AC-18: exact Polish copy for every row + footer, chevron dropped', async () => {
++  await renderScreen(store());
++  for (const t of [
++    'Użyj mojej lokalizacji',
++    'Dokładność',
++    'Alert smogowy',
++    'Próg alertu',
++    'Godziny ciszy',
++    '22:00 – 07:00',
++    'Poranne podsumowanie',
++    '07:30',
++    'Stacja widżetu',
++    'Automatyczna',
++    'Skala indeksu',
++    'Źródło',
++    'GIOŚ',
++    'Częstotliwość odświeżania',
++    '15 min',
++    'Dane: GIOŚ · Open-Meteo',
++    'Bez konta. Ulubione zostają na telefonie.',
++  ]) {
++    expect(screen.getByText(t)).toBeTruthy();
++  }
++  expect(screen.queryByText('Automatyczna ›')).toBeNull();
++});
++
++test('AC-19: toggling Alert smogowy persists alert inverted', async () => {
++  const s = store();
++  await renderScreen(s);
++  fireEvent.press(screen.getByTestId('toggle-alert'));
++  await waitFor(() => expect(s.saved.at(-1)?.alert).toBe(false));
++});
++
++test('AC-20: choosing Dokładna persists precision', async () => {
++  const s = store();
++  await renderScreen(s);
++  fireEvent.press(screen.getByTestId('seg-precision-Dokładna'));
++  await waitFor(() => expect(s.saved.at(-1)?.precision).toBe('Dokładna'));
++});
++
++test('AC-21: Wkrótce tags on unwired/placeholder rows only', async () => {
++  await renderScreen(store());
++  for (const k of [
++    'loc',
++    'precision',
++    'alert',
++    'threshold',
++    'quiet',
++    'morning',
++    'widget',
++    'scale',
++  ]) {
++    expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
++  }
++  expect(screen.queryByTestId('wkrotce-source')).toBeNull();
++  expect(screen.queryByTestId('wkrotce-refresh')).toBeNull();
++});
++
++test('AC-22: preloaded non-default store hydrates the controls', async () => {
++  await renderScreen(store({ ...DEFAULT_SETTINGS, alert: false }));
++  await waitFor(() => {
++    const track = StyleSheet.flatten(
++      screen.getByTestId('toggle-alert').props.style,
++    );
++    expect(track.justifyContent).toBe('flex-start'); // off
++  });
++});

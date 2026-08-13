@@ -18,6 +18,7 @@ import {
   WANDER_MIN,
   WANDER_MAX,
 } from '../../core/atmosphere';
+import { Skyline } from './Skyline';
 
 const MS_PER_FRAME = 1000 / 60; // the design's vy is px/frame; the clock is ms
 // Ambient floor: keep a gently-alive field even on clean-air days (density
@@ -120,6 +121,7 @@ export function Atmosphere({
           />
         ))}
       </Group>
+      <Skyline density={scene.density} width={width} height={height} />
     </Canvas>
   );
 }

@@ -4,6 +4,7 @@ import {
   fireEvent,
   within,
 } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppNavigator } from '../AppNavigator';
 import {
@@ -125,4 +126,44 @@ test('the Teraz tab keeps a dimmed live air tint when unfocused (glanceable from
       within(screen.getByTestId('tab-Ustawienia')).getByText('Ustawienia'),
     ),
   ).toBe(colors.text.inactive);
+});
+
+test('AC-3/AC-4: each tab shows its icon (tinted like the label) above the label', async () => {
+  await renderNav();
+  await screen.findByText('118');
+  const key = scene(118).key;
+  expect(
+    within(screen.getByTestId('tab-Teraz')).getByTestId('icon-Teraz').props
+      .color,
+  ).toBe(key); // focused Teraz → live key tint
+  expect(
+    within(screen.getByTestId('tab-Miejsca')).getByTestId('icon-Miejsca').props
+      .color,
+  ).toBe(colors.text.inactive); // unfocused → neutral
+});
+
+test('AC-6: each tab is a selected-aware button', async () => {
+  await renderNav();
+  expect(
+    screen.getByTestId('tab-Teraz').props.accessibilityState.selected,
+  ).toBe(true);
+  expect(
+    screen.getByTestId('tab-Miejsca').props.accessibilityState.selected,
+  ).toBe(false);
+});
+
+test('AC-5: tab bar geometry + label type', async () => {
+  await renderNav();
+  const bar = StyleSheet.flatten(screen.getByTestId('tab-bar').props.style);
+  expect(bar.height).toBe(88);
+  expect(bar.paddingTop).toBe(10);
+  expect(bar.paddingBottom).toBe(24);
+  expect(bar.backgroundColor).toBe(colors.tabBar.bg);
+  expect(bar.borderTopColor).toBe(colors.tabBar.border);
+  const label = StyleSheet.flatten(
+    within(screen.getByTestId('tab-Teraz')).getByText('Teraz').props.style,
+  );
+  expect(label.fontSize).toBe(10.5);
+  expect(label.fontWeight).toBe('500');
+  expect(label.letterSpacing).toBe(0);
 });

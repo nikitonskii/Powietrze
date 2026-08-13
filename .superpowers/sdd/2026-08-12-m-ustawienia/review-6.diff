@@ -1,0 +1,86 @@
+### commits
+2d70d63 feat(shared): SettingsGroup primitive (AC-16)
+
+### stat
+ src/shared/ui/SettingsGroup.tsx                | 43 ++++++++++++++++++++++++++
+ src/shared/ui/__tests__/SettingsGroup.test.tsx | 22 +++++++++++++
+ 2 files changed, 65 insertions(+)
+
+### diff
+diff --git a/src/shared/ui/SettingsGroup.tsx b/src/shared/ui/SettingsGroup.tsx
+new file mode 100644
+index 0000000..08c1da3
+--- /dev/null
++++ b/src/shared/ui/SettingsGroup.tsx
+@@ -0,0 +1,43 @@
++import { Children, Fragment, type ReactNode } from 'react';
++import { View, Text, StyleSheet } from 'react-native';
++import { colors } from '../tokens';
++
++export function SettingsGroup({
++  label,
++  children,
++}: {
++  label: string;
++  children: ReactNode;
++}) {
++  const rows = Children.toArray(children);
++  return (
++    <View style={styles.section}>
++      <Text style={styles.label}>{label}</Text>
++      <View style={styles.card}>
++        {rows.map((row, i) => (
++          <Fragment key={i}>
++            {row}
++            {i < rows.length - 1 && <View style={styles.divider} />}
++          </Fragment>
++        ))}
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  section: { marginTop: 22 },
++  label: {
++    fontSize: 11,
++    fontWeight: '600',
++    letterSpacing: 1.4,
++    color: colors.text.faint,
++    paddingHorizontal: 12,
++    paddingBottom: 8,
++  },
++  card: { backgroundColor: colors.card, borderRadius: 18, overflow: 'hidden' },
++  divider: {
++    height: StyleSheet.hairlineWidth,
++    backgroundColor: colors.control.divider,
++  },
++});
+diff --git a/src/shared/ui/__tests__/SettingsGroup.test.tsx b/src/shared/ui/__tests__/SettingsGroup.test.tsx
+new file mode 100644
+index 0000000..bd8db67
+--- /dev/null
++++ b/src/shared/ui/__tests__/SettingsGroup.test.tsx
+@@ -0,0 +1,22 @@
++import { render, screen } from '@testing-library/react-native';
++import { StyleSheet, Text } from 'react-native';
++import { SettingsGroup } from '../SettingsGroup';
++import { colors } from '../../tokens';
++import { colorOf } from '../../test/colorOf';
++
++test('AC-16: label rendered verbatim in faint, card wraps children', async () => {
++  await render(
++    <SettingsGroup label="DANE">
++      <Text>row-a</Text>
++      <Text>row-b</Text>
++    </SettingsGroup>,
++  );
++  const label = screen.getByText('DANE');
++  expect(colorOf(label)).toBe(colors.text.faint);
++  const s = StyleSheet.flatten(label.props.style);
++  expect(s.fontSize).toBe(11);
++  expect(s.fontWeight).toBe('600');
++  expect(s.letterSpacing).toBe(1.4);
++  expect(screen.getByText('row-a')).toBeTruthy();
++  expect(screen.getByText('row-b')).toBeTruthy();
++});

@@ -1,7 +1,14 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Text } from '../shared/ui/Text';
+import { TabIcon, type TabIconName } from '../shared/ui/TabIcon';
 import { colors } from '../shared/tokens';
+
+const ROUTE_ICON: Record<string, TabIconName> = {
+  Teraz: 'teraz',
+  Miejsca: 'miejsca',
+  Ustawienia: 'ustawienia',
+};
 
 export function makeTabBar(
   activeTints: Record<string, string>,
@@ -11,7 +18,7 @@ export function makeTabBar(
 ) {
   return function TabBar({ state, navigation }: BottomTabBarProps) {
     return (
-      <View style={styles.bar}>
+      <View testID="tab-bar" style={styles.bar}>
         {state.routes.map((route, i) => {
           const focused = state.index === i;
           const tint = focused
@@ -21,10 +28,19 @@ export function makeTabBar(
             <Pressable
               key={route.key}
               testID={`tab-${route.name}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: focused }}
               style={styles.item}
               onPress={() => navigation.navigate(route.name)}
             >
-              <Text variant="label" color={tint} style={styles.itemLabel}>
+              {ROUTE_ICON[route.name] && (
+                <TabIcon
+                  name={ROUTE_ICON[route.name]}
+                  color={tint}
+                  testID={`icon-${route.name}`}
+                />
+              )}
+              <Text variant="tab" color={tint}>
                 {route.name}
               </Text>
             </Pressable>
@@ -36,13 +52,19 @@ export function makeTabBar(
 }
 const styles = StyleSheet.create({
   bar: {
+    // Float over the scene so the live atmosphere shows through the translucent
+    // background — a glass bar, not an opaque slab over a gray backdrop.
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
     height: 88,
+    paddingTop: 10,
     paddingBottom: 24,
     backgroundColor: colors.tabBar.bg,
     borderTopWidth: 1,
     borderTopColor: colors.tabBar.border,
   },
-  item: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  itemLabel: { letterSpacing: 0.5 },
+  item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
 });

@@ -1,0 +1,111 @@
+### commits
+4ad8c08 feat(app): wire SettingsProvider with AsyncStorage store (AC-23)
+
+### stat
+ App.test.tsx | 21 +++++++++++++++++++++
+ App.tsx      | 17 +++++++++++------
+ 2 files changed, 32 insertions(+), 6 deletions(-)
+
+### diff
+diff --git a/App.test.tsx b/App.test.tsx
+new file mode 100644
+index 0000000..0a1fea0
+--- /dev/null
++++ b/App.test.tsx
+@@ -0,0 +1,21 @@
++import { render, screen, fireEvent } from '@testing-library/react-native';
++import App from './App';
++
++// App.tsx builds its data-layer instances at module scope with the real
++// global `fetch` (not injectable, unlike the unit-tested sources). Geolocation
++// is stubbed in jest.setup.js and never resolves, so the nearest-station path
++// never reaches fetchStations — only App's own station-list fetch (for search)
++// does. Stub it to resolve empty instead of hitting the network.
++beforeEach(() => {
++  global.fetch = jest.fn(() =>
++    Promise.resolve({
++      json: () => Promise.resolve({ 'Lista stacji pomiarowych': [] }),
++    }),
++  ) as unknown as typeof fetch;
++});
++
++test('AC-23: App wires SettingsProvider — Ustawienia renders without throwing', async () => {
++  await render(<App />);
++  fireEvent.press(screen.getByTestId('tab-Ustawienia'));
++  expect(await screen.findByTestId('screen-ustawienia')).toBeTruthy();
++});
+diff --git a/App.tsx b/App.tsx
+index 728afde..cecef62 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -1,59 +1,64 @@
+ import { useEffect, useState } from 'react';
+ import { StatusBar } from 'react-native';
+ import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { SafeAreaProvider } from 'react-native-safe-area-context';
+ import {
+   createNearestStationSource,
+   createStationSource,
+   fetchStations,
+ } from './src/data/gios';
+ import { createDeviceGeolocation } from './src/data/location';
+ import { createAsyncStorageFavoritesStore } from './src/data/favorites';
++import { createAsyncStorageSettingsStore } from './src/data/settings';
+ import type { ActivePlace } from './src/core/places';
+ import type { Station } from './src/core/geo';
+ import {
+   PlaceSourceProvider,
+   StationsProvider,
+   FavoritesProvider,
+   ActivePlaceProvider,
+ } from './src/shared/place';
++import { SettingsProvider } from './src/shared/settings';
+ import { AppNavigator } from './src/app/AppNavigator';
+ 
+ // Data-layer instances built once and injected (features never call data directly).
+ const nearest = createNearestStationSource(createDeviceGeolocation(), fetch);
+ const sourceForPlace = (p: ActivePlace) =>
+   p.kind === 'location' ? nearest : createStationSource(p.station, fetch);
+ const favoritesStore = createAsyncStorageFavoritesStore();
++const settingsStore = createAsyncStorageSettingsStore();
+ 
+ function App() {
+   // Fetch the station list once for search (features never call data directly).
+   const [stations, setStations] = useState<Station[]>([]);
+   useEffect(() => {
+     let on = true;
+     fetchStations(fetch)
+       .then(list => on && setStations(list))
+       .catch(() => {});
+     return () => {
+       on = false;
+     };
+   }, []);
+ 
+   return (
+     <GestureHandlerRootView style={{ flex: 1 }}>
+       <StationsProvider stations={stations}>
+         <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+           <FavoritesProvider store={favoritesStore}>
+-            <ActivePlaceProvider>
+-              <SafeAreaProvider>
+-                <StatusBar barStyle="light-content" />
+-                <AppNavigator />
+-              </SafeAreaProvider>
+-            </ActivePlaceProvider>
++            <SettingsProvider store={settingsStore}>
++              <ActivePlaceProvider>
++                <SafeAreaProvider>
++                  <StatusBar barStyle="light-content" />
++                  <AppNavigator />
++                </SafeAreaProvider>
++              </ActivePlaceProvider>
++            </SettingsProvider>
+           </FavoritesProvider>
+         </PlaceSourceProvider>
+       </StationsProvider>
+     </GestureHandlerRootView>
+   );
+ }
+ 
+ export default App;

@@ -1,0 +1,149 @@
+### commits
+90fd33c feat(shared): settings tokens + Toggle primitive (AC-13)
+
+### stat
+ src/shared/tokens/index.ts              |  9 ++++++
+ src/shared/ui/Toggle.tsx                | 50 +++++++++++++++++++++++++++++++++
+ src/shared/ui/__tests__/Toggle.test.tsx | 37 ++++++++++++++++++++++++
+ 3 files changed, 96 insertions(+)
+
+### diff
+diff --git a/src/shared/tokens/index.ts b/src/shared/tokens/index.ts
+index deffc01..a2fbae8 100644
+--- a/src/shared/tokens/index.ts
++++ b/src/shared/tokens/index.ts
+@@ -4,26 +4,35 @@ export const colors = {
+   success: '#34c759',
+   danger: '#ff453a',
+   shadow: '#000000',
+   text: {
+     primary: 'rgba(255,255,255,1)',
+     high: 'rgba(255,255,255,0.92)',
+     mid: 'rgba(255,255,255,0.72)',
+     label: 'rgba(255,255,255,0.62)',
+     dim: 'rgba(255,255,255,0.5)',
+     inactive: 'rgba(255,255,255,0.45)',
++    faint: 'rgba(255,255,255,0.4)',
++    footer: 'rgba(255,255,255,0.35)',
++    muted: 'rgba(255,255,255,0.55)',
+   },
+   tabBar: {
+     bg: 'rgba(10,12,17,0.55)',
+     border: 'rgba(255,255,255,0.08)',
+   },
+   card: 'rgba(255,255,255,0.06)',
++  control: {
++    trackOff: 'rgba(255,255,255,0.18)',
++    segBg: 'rgba(255,255,255,0.08)',
++    segActive: 'rgba(255,255,255,0.16)',
++    divider: 'rgba(255,255,255,0.06)',
++  },
+ } as const;
+ 
+ export const type = {
+   index: { size: 128, weight: '600', letterSpacing: -3 },
+   band: { size: 22, weight: '500', letterSpacing: 0 },
+   city: { size: 30, weight: '500', letterSpacing: 0 },
+   label: { size: 12, weight: '600', letterSpacing: 2.4 },
+   station: { size: 12.5, weight: '400', letterSpacing: 0 },
+   pm: { size: 14, weight: '400', letterSpacing: 0 },
+   advice: { size: 16, weight: '400', letterSpacing: 0 },
+diff --git a/src/shared/ui/Toggle.tsx b/src/shared/ui/Toggle.tsx
+new file mode 100644
+index 0000000..e62bde6
+--- /dev/null
++++ b/src/shared/ui/Toggle.tsx
+@@ -0,0 +1,50 @@
++import { Pressable, View, StyleSheet } from 'react-native';
++import { colors } from '../tokens';
++
++export function Toggle({
++  value,
++  onValueChange,
++  testID,
++}: {
++  value: boolean;
++  onValueChange: (next: boolean) => void;
++  testID?: string;
++}) {
++  return (
++    <Pressable
++      testID={testID}
++      accessibilityRole="switch"
++      accessibilityState={{ checked: value }}
++      onPress={() => onValueChange(!value)}
++      style={[
++        styles.track,
++        {
++          backgroundColor: value ? colors.success : colors.control.trackOff,
++          justifyContent: value ? 'flex-end' : 'flex-start',
++        },
++      ]}
++    >
++      <View style={styles.knob} />
++    </Pressable>
++  );
++}
++
++const styles = StyleSheet.create({
++  track: {
++    width: 50,
++    height: 30,
++    borderRadius: 15,
++    padding: 2,
++    flexDirection: 'row',
++  },
++  knob: {
++    width: 26,
++    height: 26,
++    borderRadius: 13,
++    backgroundColor: colors.text.primary,
++    shadowColor: colors.shadow,
++    shadowOffset: { width: 0, height: 2 },
++    shadowOpacity: 0.3,
++    shadowRadius: 5,
++  },
++});
+diff --git a/src/shared/ui/__tests__/Toggle.test.tsx b/src/shared/ui/__tests__/Toggle.test.tsx
+new file mode 100644
+index 0000000..a196593
+--- /dev/null
++++ b/src/shared/ui/__tests__/Toggle.test.tsx
+@@ -0,0 +1,37 @@
++import { render, screen, fireEvent } from '@testing-library/react-native';
++import { StyleSheet } from 'react-native';
++import { Toggle } from '../Toggle';
++import { colors } from '../../tokens';
++
++const trackStyle = (testID: string) =>
++  StyleSheet.flatten(screen.getByTestId(testID).props.style);
++
++test('AC-13: on → success track, knob at end', async () => {
++  const onValueChange = jest.fn();
++  await render(
++    <Toggle value onValueChange={onValueChange} testID="toggle-alert" />,
++  );
++  const s = trackStyle('toggle-alert');
++  expect(s.backgroundColor).toBe(colors.success);
++  expect(s.justifyContent).toBe('flex-end');
++  expect(s.width).toBe(50);
++  expect(s.height).toBe(30);
++});
++
++test('AC-13: off → trackOff, knob at start', async () => {
++  await render(
++    <Toggle value={false} onValueChange={jest.fn()} testID="toggle-alert" />,
++  );
++  const s = trackStyle('toggle-alert');
++  expect(s.backgroundColor).toBe(colors.control.trackOff);
++  expect(s.justifyContent).toBe('flex-start');
++});
++
++test('AC-13: press calls onValueChange with the inverse', async () => {
++  const onValueChange = jest.fn();
++  await render(
++    <Toggle value onValueChange={onValueChange} testID="toggle-alert" />,
++  );
++  fireEvent.press(screen.getByTestId('toggle-alert'));
++  expect(onValueChange).toHaveBeenCalledWith(false);
++});

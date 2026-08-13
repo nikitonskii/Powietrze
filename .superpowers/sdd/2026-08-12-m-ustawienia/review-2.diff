@@ -1,0 +1,102 @@
+### commits
+538595f feat(data): AsyncStorage settings store (AC-5..9)
+
+### stat
+ src/data/settings/__tests__/store.test.ts | 50 +++++++++++++++++++++++++++++++
+ src/data/settings/index.ts                | 31 +++++++++++++++++++
+ 2 files changed, 81 insertions(+)
+
+### diff
+diff --git a/src/data/settings/__tests__/store.test.ts b/src/data/settings/__tests__/store.test.ts
+new file mode 100644
+index 0000000..a990310
+--- /dev/null
++++ b/src/data/settings/__tests__/store.test.ts
+@@ -0,0 +1,50 @@
++import AsyncStorage from '@react-native-async-storage/async-storage';
++import { createAsyncStorageSettingsStore } from '..';
++import { DEFAULT_SETTINGS, type Settings } from '../../../core/settings';
++
++const KEY = 'powietrze.settings.v1';
++beforeEach(() => AsyncStorage.clear());
++
++const custom: Settings = {
++  loc: false,
++  alert: false,
++  morning: true,
++  precision: 'Dokładna',
++  scale: 'µg/m³',
++  threshold: 150,
++};
++
++test('AC-5: save then load round-trips exactly', async () => {
++  const store = createAsyncStorageSettingsStore();
++  await store.save(custom);
++  expect(await store.load()).toEqual(custom);
++});
++
++test('AC-6: load with nothing stored → DEFAULT_SETTINGS', async () => {
++  expect(await createAsyncStorageSettingsStore().load()).toEqual(
++    DEFAULT_SETTINGS,
++  );
++});
++
++test('AC-7: load with corrupt JSON → DEFAULT_SETTINGS, no throw', async () => {
++  await AsyncStorage.setItem(KEY, 'not json');
++  expect(await createAsyncStorageSettingsStore().load()).toEqual(
++    DEFAULT_SETTINGS,
++  );
++});
++
++test('AC-8: load with a partial/old shape → merged with defaults', async () => {
++  await AsyncStorage.setItem(KEY, JSON.stringify({ alert: false }));
++  const loaded = await createAsyncStorageSettingsStore().load();
++  expect(loaded).toEqual({ ...DEFAULT_SETTINGS, alert: false });
++});
++
++test('AC-9: save swallows a setItem rejection (never throws)', async () => {
++  const spy = jest
++    .spyOn(AsyncStorage, 'setItem')
++    .mockRejectedValueOnce(new Error('disk full'));
++  await expect(
++    createAsyncStorageSettingsStore().save(custom),
++  ).resolves.toBeUndefined();
++  spy.mockRestore();
++});
+diff --git a/src/data/settings/index.ts b/src/data/settings/index.ts
+new file mode 100644
+index 0000000..921c280
+--- /dev/null
++++ b/src/data/settings/index.ts
+@@ -0,0 +1,31 @@
++import AsyncStorage from '@react-native-async-storage/async-storage';
++import {
++  DEFAULT_SETTINGS,
++  mergeSettings,
++  type SettingsStore,
++} from '../../core/settings';
++
++const KEY = 'powietrze.settings.v1';
++
++// Persists settings as one JSON blob. Never throws: missing/corrupt loads as
++// DEFAULT_SETTINGS (via mergeSettings); a failed save is swallowed (dev-logged).
++export function createAsyncStorageSettingsStore(): SettingsStore {
++  return {
++    async load() {
++      try {
++        const raw = await AsyncStorage.getItem(KEY);
++        if (!raw) return { ...DEFAULT_SETTINGS };
++        return mergeSettings(JSON.parse(raw));
++      } catch {
++        return { ...DEFAULT_SETTINGS };
++      }
++    },
++    async save(settings) {
++      try {
++        await AsyncStorage.setItem(KEY, JSON.stringify(settings));
++      } catch (e) {
++        if (__DEV__) console.warn('[settings] save failed:', e);
++      }
++    },
++  };
++}

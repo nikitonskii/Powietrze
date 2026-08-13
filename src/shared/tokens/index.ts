@@ -36,6 +36,7 @@ export const type = {
   station: { size: 12.5, weight: '400', letterSpacing: 0 },
   pm: { size: 14, weight: '400', letterSpacing: 0 },
   advice: { size: 16, weight: '400', letterSpacing: 0 },
+  tab: { size: 10.5, weight: '500', letterSpacing: 0 },
 } as const;
 
 export const spacing = {

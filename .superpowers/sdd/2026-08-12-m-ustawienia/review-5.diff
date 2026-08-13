@@ -1,0 +1,119 @@
+### commits
+fd2f063 feat(shared): ThresholdSlider (pure math + gradient; drag=AC-24) (AC-15)
+
+### stat
+ src/shared/ui/ThresholdSlider.tsx                | 68 ++++++++++++++++++++++++
+ src/shared/ui/__tests__/ThresholdSlider.test.tsx | 30 +++++++++++
+ 2 files changed, 98 insertions(+)
+
+### diff
+diff --git a/src/shared/ui/ThresholdSlider.tsx b/src/shared/ui/ThresholdSlider.tsx
+new file mode 100644
+index 0000000..88aa175
+--- /dev/null
++++ b/src/shared/ui/ThresholdSlider.tsx
+@@ -0,0 +1,68 @@
++import { useState } from 'react';
++import { View, Text, StyleSheet } from 'react-native';
++import LinearGradient from 'react-native-linear-gradient';
++import { Gesture, GestureDetector } from 'react-native-gesture-handler';
++import { runOnJS } from 'react-native-reanimated';
++import { scene } from '../../core/scene';
++import { thresholdFromRatio, ratioFromThreshold } from '../../core/settings';
++import { colors } from '../tokens';
++
++export function ThresholdSlider({
++  value,
++  onChange,
++  testID,
++}: {
++  value: number;
++  onChange: (next: number) => void;
++  testID?: string;
++}) {
++  const [width, setWidth] = useState(0);
++  const key = scene(value).key;
++  const emit = (x: number) =>
++    onChange(thresholdFromRatio(width ? x / width : 0));
++  const pan = Gesture.Pan()
++    .onBegin(e => runOnJS(emit)(e.x))
++    .onUpdate(e => runOnJS(emit)(e.x));
++  const knobLeft = ratioFromThreshold(value) * width;
++
++  return (
++    <View testID={testID}>
++      <Text style={[styles.value, { color: key }]}>{value}</Text>
++      <GestureDetector gesture={pan}>
++        <View
++          style={styles.hitbox}
++          onLayout={e => setWidth(e.nativeEvent.layout.width)}
++        >
++          <View style={styles.track}>
++            <LinearGradient
++              testID={testID ? `${testID}-fill` : undefined}
++              colors={[key, colors.control.trackOff]}
++              start={{ x: 0, y: 0 }}
++              end={{ x: 1, y: 0 }}
++              style={StyleSheet.absoluteFill}
++            />
++          </View>
++          <View style={[styles.knob, { left: Math.max(0, knobLeft - 11) }]} />
++        </View>
++      </GestureDetector>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  value: {
++    fontSize: 15,
++    fontWeight: '600',
++    alignSelf: 'flex-end',
++    marginBottom: 12,
++  },
++  hitbox: { height: 22, justifyContent: 'center' },
++  track: { height: 6, borderRadius: 3, overflow: 'hidden' },
++  knob: {
++    position: 'absolute',
++    width: 22,
++    height: 22,
++    borderRadius: 11,
++    backgroundColor: colors.text.primary,
++  },
++});
+diff --git a/src/shared/ui/__tests__/ThresholdSlider.test.tsx b/src/shared/ui/__tests__/ThresholdSlider.test.tsx
+new file mode 100644
+index 0000000..16f0f32
+--- /dev/null
++++ b/src/shared/ui/__tests__/ThresholdSlider.test.tsx
+@@ -0,0 +1,30 @@
++import { render, screen } from '@testing-library/react-native';
++import { GestureHandlerRootView } from 'react-native-gesture-handler';
++import { ThresholdSlider } from '../ThresholdSlider';
++import { scene } from '../../../core/scene';
++import { colorOf } from '../../test/colorOf';
++import { colors } from '../../tokens';
++
++const renderSlider = (value: number) =>
++  render(
++    <GestureHandlerRootView>
++      <ThresholdSlider
++        value={value}
++        onChange={jest.fn()}
++        testID="slider-threshold"
++      />
++    </GestureHandlerRootView>,
++  );
++
++test('AC-15: value text is tinted scene(value).key', async () => {
++  await renderSlider(100);
++  expect(colorOf(screen.getByText('100'))).toBe(scene(100).key);
++});
++
++test('AC-15: track gradient runs scene(value).key → fade token, horizontally', async () => {
++  await renderSlider(150);
++  const fill = screen.getByTestId('slider-threshold-fill');
++  expect(fill.props.colors).toEqual([scene(150).key, colors.control.trackOff]);
++  expect(fill.props.start).toEqual({ x: 0, y: 0 });
++  expect(fill.props.end).toEqual({ x: 1, y: 0 });
++});
