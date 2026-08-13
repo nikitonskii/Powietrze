@@ -1,14 +1,16 @@
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { scene } from '../../core/scene';
 import { formatFreshness } from '../../core/air';
 import { Atmosphere } from '../../shared/ui/Atmosphere';
 import { GradientBackground } from '../../shared/ui/GradientBackground';
+import { HistoryChart } from '../../shared/ui/HistoryChart';
+import { PollutantTiles } from '../../shared/ui/PollutantTiles';
 import { colors, spacing } from '../../shared/tokens';
 import { useActivePlace } from '../../shared/place';
 import { Hero } from './Hero';
 
 export function TerazScreen() {
-  const { active, reading } = useActivePlace();
+  const { active, reading, detail } = useActivePlace();
   if (!reading) {
     return <View testID="teraz-loading" style={styles.loading} />;
   }
@@ -23,20 +25,29 @@ export function TerazScreen() {
   return (
     <GradientBackground scene={s}>
       <Atmosphere scene={s} />
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
         <Hero scene={s} place={place} pm25={reading.pm25} eyebrow={eyebrow} />
-      </View>
+        {detail && (
+          <View style={styles.detail}>
+            <HistoryChart history={detail.history} />
+            <View style={styles.tiles}>
+              <PollutantTiles pm10={detail.pm10} no2={detail.no2} />
+            </View>
+          </View>
+        )}
+      </ScrollView>
     </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingTop: spacing.screenTop,
     paddingHorizontal: spacing.screenH,
     paddingBottom: spacing.screenBottom,
-    justifyContent: 'center',
   },
+  detail: { marginTop: 8 },
+  tiles: { marginTop: 12 },
   loading: { flex: 1, backgroundColor: colors.base },
 });
