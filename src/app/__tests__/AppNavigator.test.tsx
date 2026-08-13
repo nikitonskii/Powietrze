@@ -4,6 +4,7 @@ import {
   fireEvent,
   within,
 } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppNavigator } from '../AppNavigator';
 import {
@@ -149,4 +150,20 @@ test('AC-6: each tab is a selected-aware button', async () => {
   expect(
     screen.getByTestId('tab-Miejsca').props.accessibilityState.selected,
   ).toBe(false);
+});
+
+test('AC-5: tab bar geometry + label type', async () => {
+  await renderNav();
+  const bar = StyleSheet.flatten(screen.getByTestId('tab-bar').props.style);
+  expect(bar.height).toBe(88);
+  expect(bar.paddingTop).toBe(10);
+  expect(bar.paddingBottom).toBe(24);
+  expect(bar.backgroundColor).toBe(colors.tabBar.bg);
+  expect(bar.borderTopColor).toBe(colors.tabBar.border);
+  const label = StyleSheet.flatten(
+    within(screen.getByTestId('tab-Teraz')).getByText('Teraz').props.style,
+  );
+  expect(label.fontSize).toBe(10.5);
+  expect(label.fontWeight).toBe('500');
+  expect(label.letterSpacing).toBe(0);
 });

@@ -60,10 +60,10 @@ export function TabIcon({
             key={`p${i}`}
             path={d}
             color={color}
-            style="stroke"
+            style={'stroke' as const}
             strokeWidth={STROKE}
-            strokeCap="round"
-            strokeJoin="round"
+            strokeCap={'round' as const}
+            strokeJoin={'round' as const}
           />
         ))}
       </Group>

@@ -1,7 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { Text } from '../shared/ui/Text';
 import { TabIcon, type TabIconName } from '../shared/ui/TabIcon';
-import { colors, type as typeScale } from '../shared/tokens';
+import { colors } from '../shared/tokens';
 
 const ROUTE_ICON: Record<string, TabIconName> = {
   Teraz: 'teraz',
@@ -17,7 +18,7 @@ export function makeTabBar(
 ) {
   return function TabBar({ state, navigation }: BottomTabBarProps) {
     return (
-      <View style={styles.bar}>
+      <View testID="tab-bar" style={styles.bar}>
         {state.routes.map((route, i) => {
           const focused = state.index === i;
           const tint = focused
@@ -39,7 +40,7 @@ export function makeTabBar(
                   testID={`icon-${route.name}`}
                 />
               )}
-              <Text style={[styles.itemLabel, { color: tint }]}>
+              <Text variant="tab" color={tint}>
                 {route.name}
               </Text>
             </Pressable>
@@ -60,9 +61,4 @@ const styles = StyleSheet.create({
     borderTopColor: colors.tabBar.border,
   },
   item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
-  itemLabel: {
-    fontSize: typeScale.tab.size,
-    fontWeight: typeScale.tab.weight,
-    letterSpacing: typeScale.tab.letterSpacing,
-  },
 });
