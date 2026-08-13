@@ -126,3 +126,27 @@ test('the Teraz tab keeps a dimmed live air tint when unfocused (glanceable from
     ),
   ).toBe(colors.text.inactive);
 });
+
+test('AC-3/AC-4: each tab shows its icon (tinted like the label) above the label', async () => {
+  await renderNav();
+  await screen.findByText('118');
+  const key = scene(118).key;
+  expect(
+    within(screen.getByTestId('tab-Teraz')).getByTestId('icon-Teraz').props
+      .color,
+  ).toBe(key); // focused Teraz → live key tint
+  expect(
+    within(screen.getByTestId('tab-Miejsca')).getByTestId('icon-Miejsca').props
+      .color,
+  ).toBe(colors.text.inactive); // unfocused → neutral
+});
+
+test('AC-6: each tab is a selected-aware button', async () => {
+  await renderNav();
+  expect(
+    screen.getByTestId('tab-Teraz').props.accessibilityState.selected,
+  ).toBe(true);
+  expect(
+    screen.getByTestId('tab-Miejsca').props.accessibilityState.selected,
+  ).toBe(false);
+});

@@ -1,7 +1,13 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Text } from '../shared/ui/Text';
-import { colors } from '../shared/tokens';
+import { TabIcon, type TabIconName } from '../shared/ui/TabIcon';
+import { colors, type as typeScale } from '../shared/tokens';
+
+const ROUTE_ICON: Record<string, TabIconName> = {
+  Teraz: 'teraz',
+  Miejsca: 'miejsca',
+  Ustawienia: 'ustawienia',
+};
 
 export function makeTabBar(
   activeTints: Record<string, string>,
@@ -21,10 +27,19 @@ export function makeTabBar(
             <Pressable
               key={route.key}
               testID={`tab-${route.name}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: focused }}
               style={styles.item}
               onPress={() => navigation.navigate(route.name)}
             >
-              <Text variant="label" color={tint} style={styles.itemLabel}>
+              {ROUTE_ICON[route.name] && (
+                <TabIcon
+                  name={ROUTE_ICON[route.name]}
+                  color={tint}
+                  testID={`icon-${route.name}`}
+                />
+              )}
+              <Text style={[styles.itemLabel, { color: tint }]}>
                 {route.name}
               </Text>
             </Pressable>
@@ -38,11 +53,16 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     height: 88,
+    paddingTop: 10,
     paddingBottom: 24,
     backgroundColor: colors.tabBar.bg,
     borderTopWidth: 1,
     borderTopColor: colors.tabBar.border,
   },
-  item: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  itemLabel: { letterSpacing: 0.5 },
+  item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  itemLabel: {
+    fontSize: typeScale.tab.size,
+    fontWeight: typeScale.tab.weight,
+    letterSpacing: typeScale.tab.letterSpacing,
+  },
 });
