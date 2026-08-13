@@ -20,6 +20,8 @@ export const colors = {
     border: 'rgba(255,255,255,0.08)',
   },
   card: 'rgba(255,255,255,0.06)',
+  glass: 'rgba(255,255,255,0.07)',
+  glassBorder: 'rgba(255,255,255,0.09)',
   control: {
     trackOff: 'rgba(255,255,255,0.18)',
     segBg: 'rgba(255,255,255,0.08)',

@@ -5,12 +5,15 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { ReadingDetail } from '../../core/air';
 import { LOCATION_PLACE, type ActivePlace } from '../../core/places';
+import { usePlaceDetail } from './usePlaceDetail';
 import { usePlaceReading, type ReadingState } from './usePlaceReading';
 
 type ActivePlaceValue = {
   active: ActivePlace;
   setActive: (p: ActivePlace) => void;
+  detail?: ReadingDetail;
 } & ReadingState;
 
 const Ctx = createContext<ActivePlaceValue | null>(null);
@@ -20,9 +23,10 @@ const Ctx = createContext<ActivePlaceValue | null>(null);
 export function ActivePlaceProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<ActivePlace>(LOCATION_PLACE);
   const state = usePlaceReading(active);
+  const { detail } = usePlaceDetail(active);
   const value = useMemo<ActivePlaceValue>(
-    () => ({ active, setActive, ...state }),
-    [active, state],
+    () => ({ active, setActive, detail, ...state }),
+    [active, state, detail],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

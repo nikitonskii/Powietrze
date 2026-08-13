@@ -1,3 +1,5 @@
+import type { ReadingDetail } from './history';
+
 export interface Reading {
   index: number;
   pm25: number;
@@ -8,6 +10,7 @@ export interface Reading {
 
 export interface AirQualitySource {
   getCurrentReading(): Promise<Reading>;
+  getDetail?(): Promise<ReadingDetail>; // active-place only; see spec 012
 }
 
 export const PM25_INDEX_DIVISOR = 1.03;
@@ -26,3 +29,5 @@ export function formatFreshness(measuredAt: string, now: Date): string {
   if (mins < 60) return `${mins} min temu`;
   return `${Math.floor(mins / 60)} godz temu`;
 }
+
+export * from './history';
