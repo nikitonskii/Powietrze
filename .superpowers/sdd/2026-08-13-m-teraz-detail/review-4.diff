@@ -1,0 +1,204 @@
+### commits
+036d9d1 feat(shared): usePlaceDetail + active-place detail; getDetail? on AirQualitySource (AC-7, spec 012)
+
+### stat
+ src/core/air/index.ts                              |  3 +
+ src/shared/place/ActivePlaceContext.tsx            |  8 ++-
+ src/shared/place/__tests__/usePlaceDetail.test.tsx | 67 ++++++++++++++++++++++
+ src/shared/place/index.ts                          |  1 +
+ src/shared/place/usePlaceDetail.ts                 | 27 +++++++++
+ 5 files changed, 104 insertions(+), 2 deletions(-)
+
+### diff
+diff --git a/src/core/air/index.ts b/src/core/air/index.ts
+index 8ab7e4d..e39248e 100644
+--- a/src/core/air/index.ts
++++ b/src/core/air/index.ts
+@@ -1,22 +1,25 @@
++import type { ReadingDetail } from './history';
++
+ export interface Reading {
+   index: number;
+   pm25: number;
+   measuredAt: string;
+   city: string;
+   station: string;
+ }
+ 
+ export interface AirQualitySource {
+   getCurrentReading(): Promise<Reading>;
++  getDetail?(): Promise<ReadingDetail>; // active-place only; see spec 012
+ }
+ 
+ export const PM25_INDEX_DIVISOR = 1.03;
+ 
+ export function indexFromPm25(pm25: number): number {
+   return Math.round(pm25 / PM25_INDEX_DIVISOR);
+ }
+ 
+ // Relative freshness label. `now` is injected for testability. `measuredAt`
+ // ("YYYY-MM-DD HH:mm:ss") is treated as device-local time — the app is
+ // Poland-only and GIOŚ timestamps are Europe/Warsaw local.
+ export function formatFreshness(measuredAt: string, now: Date): string {
+diff --git a/src/shared/place/ActivePlaceContext.tsx b/src/shared/place/ActivePlaceContext.tsx
+index 83e8e50..17ecdbf 100644
+--- a/src/shared/place/ActivePlaceContext.tsx
++++ b/src/shared/place/ActivePlaceContext.tsx
+@@ -1,35 +1,39 @@
+ import {
+   createContext,
+   useContext,
+   useMemo,
+   useState,
+   type ReactNode,
+ } from 'react';
++import type { ReadingDetail } from '../../core/air';
+ import { LOCATION_PLACE, type ActivePlace } from '../../core/places';
++import { usePlaceDetail } from './usePlaceDetail';
+ import { usePlaceReading, type ReadingState } from './usePlaceReading';
+ 
+ type ActivePlaceValue = {
+   active: ActivePlace;
+   setActive: (p: ActivePlace) => void;
++  detail?: ReadingDetail;
+ } & ReadingState;
+ 
+ const Ctx = createContext<ActivePlaceValue | null>(null);
+ 
+ // Single source of truth for the active place + its live reading (Teraz + tab tint).
+ // Default is the device location; resets on each launch (in-memory).
+ export function ActivePlaceProvider({ children }: { children: ReactNode }) {
+   const [active, setActive] = useState<ActivePlace>(LOCATION_PLACE);
+   const state = usePlaceReading(active);
++  const { detail } = usePlaceDetail(active);
+   const value = useMemo<ActivePlaceValue>(
+-    () => ({ active, setActive, ...state }),
+-    [active, state],
++    () => ({ active, setActive, detail, ...state }),
++    [active, state, detail],
+   );
+   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+ }
+ 
+ export function useActivePlace(): ActivePlaceValue {
+   const v = useContext(Ctx);
+   if (!v)
+     throw new Error('useActivePlace: wrap the tree in <ActivePlaceProvider>');
+   return v;
+ }
+diff --git a/src/shared/place/__tests__/usePlaceDetail.test.tsx b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+new file mode 100644
+index 0000000..1e88655
+--- /dev/null
++++ b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+@@ -0,0 +1,67 @@
++import { renderHook, act, waitFor } from '@testing-library/react-native';
++import type { ReactNode } from 'react';
++import { usePlaceDetail } from '../usePlaceDetail';
++import {
++  PlaceSourceProvider,
++  type SourceForPlace,
++} from '../PlaceSourceContext';
++import { LOCATION_PLACE } from '../../../core/places';
++import type { Reading, ReadingDetail } from '../../../core/air';
++
++// Minimal real Reading (not `{} as any`) — getCurrentReading is unused by
++// usePlaceDetail, but the stub source must still satisfy AirQualitySource.
++const READING: Reading = {
++  index: 5,
++  pm25: 5,
++  measuredAt: '2026-08-13 12:00:00',
++  city: 'Kraków',
++  station: 'x',
++};
++
++const detail: ReadingDetail = {
++  history: [{ at: 't', pm25: 5, index: 5 }],
++  pm10: 30,
++  no2: 22,
++};
++
++const wrap = (sfp: SourceForPlace) =>
++  function W({ children }: { children: ReactNode }) {
++    return (
++      <PlaceSourceProvider sourceForPlace={sfp}>{children}</PlaceSourceProvider>
++    );
++  };
++
++test('AC-7: getDetail present → detail resolves', async () => {
++  const sfp: SourceForPlace = () => ({
++    getCurrentReading: async () => READING,
++    getDetail: async () => detail,
++  });
++  const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
++    wrapper: wrap(sfp),
++  });
++  await waitFor(() => expect(result.current.detail).toEqual(detail));
++});
++
++test('AC-7: no getDetail → detail undefined (no throw)', async () => {
++  const sfp: SourceForPlace = () => ({
++    getCurrentReading: async () => READING,
++  });
++  const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
++    wrapper: wrap(sfp),
++  });
++  // allow a tick; stays undefined
++  await act(async () => {});
++  expect(result.current.detail).toBeUndefined();
++});
++
++test('AC-7: rejected getDetail → detail undefined (no throw)', async () => {
++  const sfp: SourceForPlace = () => ({
++    getCurrentReading: async () => READING,
++    getDetail: () => Promise.reject(new Error('x')),
++  });
++  const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
++    wrapper: wrap(sfp),
++  });
++  await act(async () => {});
++  expect(result.current.detail).toBeUndefined();
++});
+diff --git a/src/shared/place/index.ts b/src/shared/place/index.ts
+index b0e6bca..e6077e5 100644
+--- a/src/shared/place/index.ts
++++ b/src/shared/place/index.ts
+@@ -1,4 +1,5 @@
+ export * from './PlaceSourceContext';
+ export * from './usePlaceReading';
++export * from './usePlaceDetail';
+ export * from './ActivePlaceContext';
+ export * from './FavoritesContext';
+diff --git a/src/shared/place/usePlaceDetail.ts b/src/shared/place/usePlaceDetail.ts
+new file mode 100644
+index 0000000..efc8426
+--- /dev/null
++++ b/src/shared/place/usePlaceDetail.ts
+@@ -0,0 +1,27 @@
++import { useEffect, useState } from 'react';
++import type { ReadingDetail } from '../../core/air';
++import type { ActivePlace } from '../../core/places';
++import { useSourceForPlace } from './PlaceSourceContext';
++
++// Fetches rich detail (24h history + PM10/NO2) for the ACTIVE place only, once
++// per place identity. Mirrors usePlaceReading. Absent getDetail or a rejection
++// → detail stays undefined (Teraz degrades to Hero-only).
++export function usePlaceDetail(place: ActivePlace): { detail?: ReadingDetail } {
++  const sourceForPlace = useSourceForPlace();
++  const [detail, setDetail] = useState<ReadingDetail | undefined>(undefined);
++  const placeKey =
++    place.kind === 'location' ? 'location' : `station:${place.station.id}`;
++  useEffect(() => {
++    let active = true;
++    setDetail(undefined); // reset while the new place's detail loads
++    sourceForPlace(place)
++      .getDetail?.()
++      .then(d => active && setDetail(d))
++      .catch(() => active && setDetail(undefined));
++    return () => {
++      active = false;
++    };
++    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
++  }, [sourceForPlace, placeKey]);
++  return { detail };
++}

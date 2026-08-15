@@ -2,9 +2,15 @@ import { createStationSource, createNearestStationSource } from '../source';
 import { KRAKOW_STATION } from '../constants';
 import sensors400 from '../__fixtures__/sensors400.json';
 import sensorsNoNo2 from '../__fixtures__/sensors400_noNo2.json';
+import sensorsAll6 from '../__fixtures__/sensors_all6.json';
 import pm25_26 from '../__fixtures__/getData_pm25_26.json';
 import pm10 from '../__fixtures__/getData_pm10.json';
 import no2 from '../__fixtures__/getData_no2.json';
+import co from '../__fixtures__/getData_co.json';
+import c6h6 from '../__fixtures__/getData_c6h6.json';
+import o3 from '../__fixtures__/getData_o3.json';
+import so2 from '../__fixtures__/getData_so2.json';
+import allnull from '../__fixtures__/getData_allnull.json';
 import realStations from '../../../core/geo/__fixtures__/stations.json';
 import type { Geolocation } from '../../../core/geo';
 
@@ -28,15 +34,18 @@ function makeFetch(
   return { fetchImpl, calls };
 }
 
+// Station 400 as fixtured: PM10 + NO2 + CO + C6H6 (no O3/SO2 sensors).
 const KRAKOW_ROUTES = {
   '/station/sensors/400': sensors400,
   '/data/getData/2752': pm25_26,
   '/data/getData/2750': pm10,
   '/data/getData/2747': no2,
+  '/data/getData/2745': co,
+  '/data/getData/16500': c6h6,
 };
 
-describe('AC-6: getDetail composes history + PM10/NO2', () => {
-  test('resolves history, pm10, no2 and fetches the PM2.5 series with size=100', async () => {
+describe('AC-3a: detailFor resolves pollutants in catalog order (no O3/SO2 sensors)', () => {
+  test('PM10+NO2+CO+C6H6 station → pollutants is exactly [PM10,NO2,CO,C6H6] in order, history from PM2.5', async () => {
     const { fetchImpl, calls } = makeFetch(KRAKOW_ROUTES);
     const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
       .getDetail!();
@@ -44,46 +53,109 @@ describe('AC-6: getDetail composes history + PM10/NO2', () => {
     expect(detail.history.length).toBe(24);
     expect(detail.history[0].at).toBe('2026-08-11 23:00:00'); // oldest
     expect(detail.history[23].at).toBe('2026-08-12 22:00:00'); // newest
-    expect(detail.pm10).toBe(30);
-    expect(detail.no2).toBe(22);
+
+    expect(detail.pollutants).toEqual([
+      { code: 'PM10', value: 30 },
+      { code: 'NO2', value: 22 },
+      { code: 'CO', value: 350 },
+      { code: 'C6H6', value: 0.35 },
+    ]);
 
     const pm25Call = calls.find(u => u.includes('/data/getData/2752'));
     expect(pm25Call).toContain('size=100');
   });
 
-  test('missing NO2 sensor → no2 undefined, history + pm10 still present', async () => {
+  test('missing NO2 sensor → NO2 omitted, PM10/CO/C6H6 still present in order', async () => {
     const { fetchImpl } = makeFetch({
       '/station/sensors/400': sensorsNoNo2,
       '/data/getData/2752': pm25_26,
       '/data/getData/2750': pm10,
+      '/data/getData/2745': co,
+      '/data/getData/16500': c6h6,
     });
     const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
       .getDetail!();
 
-    expect(detail.no2).toBeUndefined();
+    expect(detail.pollutants).toEqual([
+      { code: 'PM10', value: 30 },
+      { code: 'CO', value: 350 },
+      { code: 'C6H6', value: 0.35 },
+    ]);
     expect(detail.history.length).toBe(24);
-    expect(detail.pm10).toBe(30);
   });
 });
 
-describe('AC-6b: per-pollutant failure isolation — getDetail never rejects', () => {
-  test('NO2 fetch rejects → no2 undefined, history + pm10 present', async () => {
+describe('AC-3b: detailFor resolves all six pollutants in catalog order', () => {
+  test('station exposing all six sensors → pollutants equals [PM10,NO2,O3,SO2,CO,C6H6]', async () => {
+    const { fetchImpl } = makeFetch({
+      '/station/sensors/400': sensorsAll6,
+      '/data/getData/2752': pm25_26,
+      '/data/getData/2750': pm10,
+      '/data/getData/2747': no2,
+      '/data/getData/2749': o3,
+      '/data/getData/2751': so2,
+      '/data/getData/2745': co,
+      '/data/getData/16500': c6h6,
+    });
+    const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
+      .getDetail!();
+
+    expect(detail.pollutants).toEqual([
+      { code: 'PM10', value: 30 },
+      { code: 'NO2', value: 22 },
+      { code: 'O3', value: 45 },
+      { code: 'SO2', value: 8.5 },
+      { code: 'CO', value: 350 },
+      { code: 'C6H6', value: 0.35 },
+    ]);
+  });
+});
+
+describe('AC-3c: a present sensor with all-null getData is omitted (finite filter, not merely settled)', () => {
+  test('CO sensor present but getData returns no non-null readings → CO omitted, others present', async () => {
+    const { fetchImpl } = makeFetch({
+      '/station/sensors/400': sensors400,
+      '/data/getData/2752': pm25_26,
+      '/data/getData/2750': pm10,
+      '/data/getData/2747': no2,
+      '/data/getData/2745': allnull, // CO sensor id, all-null series
+      '/data/getData/16500': c6h6,
+    });
+    const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
+      .getDetail!();
+
+    expect(detail.pollutants).toEqual([
+      { code: 'PM10', value: 30 },
+      { code: 'NO2', value: 22 },
+      { code: 'C6H6', value: 0.35 },
+    ]);
+  });
+});
+
+describe('AC-3 (regression: failure isolation) — getDetail never rejects', () => {
+  test('NO2 fetch rejects → NO2 omitted, other pollutants + history present', async () => {
     const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2747']);
     const source = createStationSource(KRAKOW_STATION, fetchImpl);
-    await expect(source.getDetail!()).resolves.toEqual(
-      expect.objectContaining({ no2: undefined, pm10: 30 }),
-    );
     const detail = await source.getDetail!();
+    expect(detail.pollutants).toEqual([
+      { code: 'PM10', value: 30 },
+      { code: 'CO', value: 350 },
+      { code: 'C6H6', value: 0.35 },
+    ]);
     expect(detail.history.length).toBe(24);
   });
 
-  test('PM2.5 fetch rejects → history: [], pm10/no2 present', async () => {
+  test('PM2.5 fetch rejects → history: [], pollutants still present', async () => {
     const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2752']);
     const source = createStationSource(KRAKOW_STATION, fetchImpl);
     const detail = await source.getDetail!();
     expect(detail.history).toEqual([]);
-    expect(detail.pm10).toBe(30);
-    expect(detail.no2).toBe(22);
+    expect(detail.pollutants).toEqual([
+      { code: 'PM10', value: 30 },
+      { code: 'NO2', value: 22 },
+      { code: 'CO', value: 350 },
+      { code: 'C6H6', value: 0.35 },
+    ]);
   });
 });
 
@@ -114,6 +186,8 @@ describe('AC-6c: nearest source location fallback shares the resolved station', 
       '/data/getData/2752': pm25_26,
       '/data/getData/2750': pm10,
       '/data/getData/2747': no2,
+      '/data/getData/2745': co,
+      '/data/getData/16500': c6h6,
     });
     const getCurrentPosition = jest.fn(async () => ({ lat: 52.22, lon: 21.0 }));
     const warsaw: Geolocation = { getCurrentPosition };
@@ -142,6 +216,8 @@ describe('AC-6c: nearest source location fallback shares the resolved station', 
         '/data/getData/2752': pm25_26,
         '/data/getData/2750': pm10,
         '/data/getData/2747': no2,
+        '/data/getData/2745': co,
+        '/data/getData/16500': c6h6,
       },
       ['/station/sensors/530'], // reading the nearest (Warszawa) station fails
     );
@@ -156,7 +232,11 @@ describe('AC-6c: nearest source location fallback shares the resolved station', 
 
     expect(reading.city).toBe('Kraków'); // hero fell back to Kraków
     expect(detail.history.length).toBe(24); // detail followed — NOT empty
-    expect(detail.pm10).toBe(30);
-    expect(detail.no2).toBe(22);
+    expect(detail.pollutants).toEqual([
+      { code: 'PM10', value: 30 },
+      { code: 'NO2', value: 22 },
+      { code: 'CO', value: 350 },
+      { code: 'C6H6', value: 0.35 },
+    ]);
   });
 });

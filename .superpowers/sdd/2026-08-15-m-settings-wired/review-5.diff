@@ -1,0 +1,335 @@
+### commits
+2e6d13e feat(place): loc setting drives the default place (AC-6, spec 014)
+
+### stat
+ App.tsx                                            |  3 +-
+ src/app/__tests__/AppNavigator.test.tsx            | 16 ++---
+ src/shared/place/ActivePlaceContext.tsx            | 30 +++++++--
+ .../place/__tests__/ActivePlaceContext.test.tsx    | 78 +++++++++++++++++++++-
+ 4 files changed, 111 insertions(+), 16 deletions(-)
+
+### diff
+diff --git a/App.tsx b/App.tsx
+index cecef62..63738f8 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -1,20 +1,21 @@
+ import { useEffect, useState } from 'react';
+ import { StatusBar } from 'react-native';
+ import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { SafeAreaProvider } from 'react-native-safe-area-context';
+ import {
+   createNearestStationSource,
+   createStationSource,
+   fetchStations,
++  KRAKOW_STATION,
+ } from './src/data/gios';
+ import { createDeviceGeolocation } from './src/data/location';
+ import { createAsyncStorageFavoritesStore } from './src/data/favorites';
+ import { createAsyncStorageSettingsStore } from './src/data/settings';
+ import type { ActivePlace } from './src/core/places';
+ import type { Station } from './src/core/geo';
+ import {
+   PlaceSourceProvider,
+   StationsProvider,
+   FavoritesProvider,
+   ActivePlaceProvider,
+ } from './src/shared/place';
+@@ -38,25 +39,25 @@ function App() {
+       .catch(() => {});
+     return () => {
+       on = false;
+     };
+   }, []);
+ 
+   return (
+     <GestureHandlerRootView style={{ flex: 1 }}>
+       <StationsProvider stations={stations}>
+         <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+           <FavoritesProvider store={favoritesStore}>
+             <SettingsProvider store={settingsStore}>
+-              <ActivePlaceProvider>
++              <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
+                 <SafeAreaProvider>
+                   <StatusBar barStyle="light-content" />
+                   <AppNavigator />
+                 </SafeAreaProvider>
+               </ActivePlaceProvider>
+             </SettingsProvider>
+           </FavoritesProvider>
+         </PlaceSourceProvider>
+       </StationsProvider>
+     </GestureHandlerRootView>
+   );
+ }
+diff --git a/src/app/__tests__/AppNavigator.test.tsx b/src/app/__tests__/AppNavigator.test.tsx
+index 6523e40..9b5ffd7 100644
+--- a/src/app/__tests__/AppNavigator.test.tsx
++++ b/src/app/__tests__/AppNavigator.test.tsx
+@@ -35,29 +35,29 @@ const emptyStore: FavoritesStore = {
+ // settings store too.
+ const settingsStore: SettingsStore = {
+   load: async () => DEFAULT_SETTINGS,
+   save: async () => {},
+ };
+ 
+ const renderNav = () =>
+   render(
+     <GestureHandlerRootView>
+       <StationsProvider stations={[]}>
+         <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
+           <FavoritesProvider store={emptyStore}>
+-            <ActivePlaceProvider>
+-              <SettingsProvider store={settingsStore}>
++            <SettingsProvider store={settingsStore}>
++              <ActivePlaceProvider>
+                 <AppNavigator />
+-              </SettingsProvider>
+-            </ActivePlaceProvider>
++              </ActivePlaceProvider>
++            </SettingsProvider>
+           </FavoritesProvider>
+         </PlaceSourceProvider>
+       </StationsProvider>
+     </GestureHandlerRootView>,
+   );
+ 
+ test('AC-9: three tabs, Teraz active, hero visible', async () => {
+   await renderNav();
+   expect(screen.getByTestId('tab-Teraz')).toBeTruthy();
+   expect(screen.getByTestId('tab-Miejsca')).toBeTruthy();
+   expect(screen.getByTestId('tab-Ustawienia')).toBeTruthy();
+   expect(await screen.findByText('TWOJA LOKALIZACJA')).toBeTruthy();
+@@ -87,29 +87,29 @@ test('AC 006-10: Teraz tab tint comes from the active reading index, not MOCK_PL
+   fireEvent.press(screen.getByTestId('tab-Miejsca'));
+   await screen.findByTestId('screen-miejsca');
+   expect(
+     colorOf(within(screen.getByTestId('tab-Miejsca')).getByText('Miejsca')),
+   ).toBe(colors.accent);
+ });
+ 
+ test('AC 006-10: Teraz tab tint is the neutral accent while the reading is loading', async () => {
+   await render(
+     <StationsProvider stations={[]}>
+       <PlaceSourceProvider sourceForPlace={() => pendingAirSource()}>
+         <FavoritesProvider store={emptyStore}>
+-          <ActivePlaceProvider>
+-            <SettingsProvider store={settingsStore}>
++          <SettingsProvider store={settingsStore}>
++            <ActivePlaceProvider>
+               <AppNavigator />
+-            </SettingsProvider>
+-          </ActivePlaceProvider>
++            </ActivePlaceProvider>
++          </SettingsProvider>
+         </FavoritesProvider>
+       </PlaceSourceProvider>
+     </StationsProvider>,
+   );
+   await screen.findByTestId('teraz-loading'); // no reading yet
+   expect(
+     colorOf(within(screen.getByTestId('tab-Teraz')).getByText('Teraz')),
+   ).toBe(colors.accent);
+ });
+ 
+ test('the Teraz tab keeps a dimmed live air tint when unfocused (glanceable from any tab)', async () => {
+   await renderNav();
+diff --git a/src/shared/place/ActivePlaceContext.tsx b/src/shared/place/ActivePlaceContext.tsx
+index 17ecdbf..35cd040 100644
+--- a/src/shared/place/ActivePlaceContext.tsx
++++ b/src/shared/place/ActivePlaceContext.tsx
+@@ -1,36 +1,58 @@
+ import {
+   createContext,
+   useContext,
++  useEffect,
+   useMemo,
+   useState,
+   type ReactNode,
+ } from 'react';
+ import type { ReadingDetail } from '../../core/air';
+-import { LOCATION_PLACE, type ActivePlace } from '../../core/places';
++import type { Station } from '../../core/geo';
++import {
++  defaultPlace,
++  LOCATION_PLACE,
++  type ActivePlace,
++} from '../../core/places';
++import { useSettings } from '../settings';
+ import { usePlaceDetail } from './usePlaceDetail';
+ import { usePlaceReading, type ReadingState } from './usePlaceReading';
+ 
+ type ActivePlaceValue = {
+   active: ActivePlace;
+   setActive: (p: ActivePlace) => void;
+   detail?: ReadingDetail;
+ } & ReadingState;
+ 
+ const Ctx = createContext<ActivePlaceValue | null>(null);
+ 
+ // Single source of truth for the active place + its live reading (Teraz + tab tint).
+-// Default is the device location; resets on each launch (in-memory).
+-export function ActivePlaceProvider({ children }: { children: ReactNode }) {
+-  const [active, setActive] = useState<ActivePlace>(LOCATION_PLACE);
++// Default follows the `loc` setting: location when on, else `defaultStation`
++// (falls back to LOCATION_PLACE when no defaultStation is given, e.g. in tests).
++export function ActivePlaceProvider({
++  defaultStation,
++  children,
++}: {
++  defaultStation?: Station;
++  children: ReactNode;
++}) {
++  const { settings } = useSettings();
++  const target = defaultStation
++    ? defaultPlace(settings.loc, defaultStation)
++    : LOCATION_PLACE;
++  const [active, setActive] = useState<ActivePlace>(() => target);
++  useEffect(() => {
++    setActive(target);
++    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset default on loc change, not on the fresh `target` object each render
++  }, [settings.loc, defaultStation]);
+   const state = usePlaceReading(active);
+   const { detail } = usePlaceDetail(active);
+   const value = useMemo<ActivePlaceValue>(
+     () => ({ active, setActive, detail, ...state }),
+     [active, state, detail],
+   );
+   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+ }
+ 
+ export function useActivePlace(): ActivePlaceValue {
+   const v = useContext(Ctx);
+   if (!v)
+diff --git a/src/shared/place/__tests__/ActivePlaceContext.test.tsx b/src/shared/place/__tests__/ActivePlaceContext.test.tsx
+index a8655c0..f069839 100644
+--- a/src/shared/place/__tests__/ActivePlaceContext.test.tsx
++++ b/src/shared/place/__tests__/ActivePlaceContext.test.tsx
+@@ -1,26 +1,37 @@
+ import {
+   render,
+   screen,
+   waitFor,
+   fireEvent,
+ } from '@testing-library/react-native';
+ import { Text, Pressable } from 'react-native';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../PlaceSourceContext';
+ import { ActivePlaceProvider, useActivePlace } from '../ActivePlaceContext';
++import { SettingsProvider, useSettings } from '../../settings';
+ import type { Station } from '../../../core/geo';
+ import type { Reading } from '../../../core/air';
++import {
++  DEFAULT_SETTINGS,
++  type Settings,
++  type SettingsStore,
++} from '../../../core/settings';
++
++const store = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
++  load: async () => s,
++  save: async () => {},
++});
+ 
+ const warsaw: Station = {
+   id: 530,
+   name: 'Warszawa, Al. Niepodległości',
+   city: 'Warszawa',
+   lat: 0,
+   lon: 0,
+ };
+ const rLoc: Reading = {
+   index: 4,
+   pm25: 5,
+   measuredAt: '2026-08-11 21:00:00',
+@@ -51,25 +62,86 @@ function Probe() {
+         testID="pick"
+         onPress={() => setActive({ kind: 'station', station: warsaw })}
+       >
+         <Text>pick</Text>
+       </Pressable>
+     </>
+   );
+ }
+ 
+ test('AC 006-6: defaults to location, then setActive switches the reading', async () => {
+   render(
+     <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+-      <ActivePlaceProvider>
+-        <Probe />
+-      </ActivePlaceProvider>
++      <SettingsProvider store={store()}>
++        <ActivePlaceProvider>
++          <Probe />
++        </ActivePlaceProvider>
++      </SettingsProvider>
+     </PlaceSourceProvider>,
+   );
+   await waitFor(() =>
+     expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
+   );
+   fireEvent.press(screen.getByTestId('pick'));
+   await waitFor(() =>
+     expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
+   );
+ });
++
++test('AC-6: defaultStation is used when loc setting is off', async () => {
++  render(
++    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++      <SettingsProvider store={store({ ...DEFAULT_SETTINGS, loc: false })}>
++        <ActivePlaceProvider defaultStation={warsaw}>
++          <Probe />
++        </ActivePlaceProvider>
++      </SettingsProvider>
++    </PlaceSourceProvider>,
++  );
++  await waitFor(() =>
++    expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
++  );
++});
++
++test('AC-6: defaultStation is ignored when loc setting is on', async () => {
++  render(
++    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++      <SettingsProvider store={store({ ...DEFAULT_SETTINGS, loc: true })}>
++        <ActivePlaceProvider defaultStation={warsaw}>
++          <Probe />
++        </ActivePlaceProvider>
++      </SettingsProvider>
++    </PlaceSourceProvider>,
++  );
++  await waitFor(() =>
++    expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
++  );
++});
++
++function LocToggle() {
++  const { set } = useSettings();
++  return (
++    <Pressable testID="toggle-loc" onPress={() => set('loc', false)}>
++      <Text>toggle</Text>
++    </Pressable>
++  );
++}
++
++test('AC-6: turning loc off resets active to the default station', async () => {
++  render(
++    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++      <SettingsProvider store={store({ ...DEFAULT_SETTINGS, loc: true })}>
++        <ActivePlaceProvider defaultStation={warsaw}>
++          <Probe />
++          <LocToggle />
++        </ActivePlaceProvider>
++      </SettingsProvider>
++    </PlaceSourceProvider>,
++  );
++  await waitFor(() =>
++    expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
++  );
++  fireEvent.press(screen.getByTestId('toggle-loc'));
++  await waitFor(() =>
++    expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
++  );
++});

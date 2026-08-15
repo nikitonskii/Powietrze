@@ -1,41 +1,48 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../tokens';
 import type { Precision } from '../../core/settings';
-import { formatConcentration } from '../../core/air';
+import {
+  formatPollutant,
+  POLLUTANTS,
+  type PollutantReading,
+} from '../../core/air';
 
 function Tile({
-  label,
+  code,
   value,
   precision,
-}: {
-  label: string;
-  value: number | undefined;
-  precision: Precision;
-}) {
+}: PollutantReading & { precision: Precision }) {
+  const label = POLLUTANTS.find(p => p.code === code)!.label;
   return (
     <View style={styles.tile}>
       <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>
-        {value === undefined ? '—' : formatConcentration(value, precision)}
-      </Text>
+      <Text style={styles.value}>{formatPollutant(value, precision)}</Text>
       <Text style={styles.unit}>µg/m³</Text>
     </View>
   );
 }
 
+// Wrapping 2-column grid: one tile per measured pollutant, in catalog order.
+// Empty list → render nothing (no crash, no stray unit). A lone last tile
+// (odd count) keeps its 48% width — not stretched to full width.
 export function PollutantTiles({
-  pm10,
-  no2,
+  pollutants,
   precision,
 }: {
-  pm10?: number;
-  no2?: number;
+  pollutants: PollutantReading[];
   precision: Precision;
 }) {
+  if (pollutants.length === 0) return null;
   return (
     <View style={styles.row}>
-      <Tile label="PM10" value={pm10} precision={precision} />
-      <Tile label="NO₂" value={no2} precision={precision} />
+      {pollutants.map(p => (
+        <Tile
+          key={p.code}
+          code={p.code}
+          value={p.value}
+          precision={precision}
+        />
+      ))}
     </View>
   );
 }
@@ -43,6 +50,7 @@ export function PollutantTiles({
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
   },
   tile: {
@@ -51,7 +59,7 @@ const styles = StyleSheet.create({
     borderColor: colors.glassBorder,
     borderRadius: 20,
     padding: 16,
-    flex: 1,
+    flexBasis: '48%',
   },
   label: {
     color: colors.text.dim,

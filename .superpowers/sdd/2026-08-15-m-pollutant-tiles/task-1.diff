@@ -1,0 +1,244 @@
+### commits
+d91de48 feat(core): pollutant catalog + formatPollutant (AC-1, AC-2)
+
+### stat
+ .../2026-08-15-m-pollutant-tiles/task-1-report.md  | 67 ++++++++++++++++++++++
+ src/core/air/__tests__/pollutants.test.ts          | 12 ++++
+ src/core/air/__tests__/scale.test.ts               | 22 +++++++
+ src/core/air/index.ts                              | 11 ++++
+ src/core/air/pollutants.ts                         | 26 +++++++++
+ 5 files changed, 138 insertions(+)
+
+### diff
+diff --git a/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-1-report.md b/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-1-report.md
+new file mode 100644
+index 0000000..eedb119
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-1-report.md
+@@ -0,0 +1,67 @@
++# Task 1 report — Core catalog + small-magnitude formatter
++
++Spec: `docs/specs/016-pollutant-tiles.md` · Plan: `docs/superpowers/plans/2026-08-15-m-pollutant-tiles.md` (Task 1)
++
++## What was added
++
++1. **`src/core/air/pollutants.ts`** (new file, 25 lines) — additive, `ReadingDetail` untouched.
++   - `PollutantCode = 'PM10' | 'NO2' | 'O3' | 'SO2' | 'CO' | 'C6H6'`
++   - `PollutantSpec { code: PollutantCode; label: string }`
++   - `POLLUTANTS: readonly PollutantSpec[]` — the exact 6-entry literal from spec
++     §Core, in order, with real subscript glyphs (NO₂/O₃/SO₂/C₆H₆).
++   - `PollutantReading { code: PollutantCode; value: number }` — no `label` field,
++     per spec (UI derives labels from `POLLUTANTS` later, in Task 2).
++
++2. **`src/core/air/index.ts`** — two additions:
++   - `export * from './pollutants';` (re-export, alongside the existing
++     `export * from './history';`)
++   - `formatPollutant(value: number, precision: Precision): string` — clean
++     delegation: `0 < value < 1` → `value.toFixed(2)`; else
++     `formatConcentration(value, precision)` (which already returns `'—'` for
++     non-finite and handles negatives/≥1 unchanged). No duplicated logic.
++
++3. **Tests** (TDD — written first, confirmed red, then implementation made them green):
++   - `src/core/air/__tests__/pollutants.test.ts` (new)
++     - `test('AC-1: POLLUTANTS pins the six-entry catalog, codes+labels+order', ...)`
++   - `src/core/air/__tests__/scale.test.ts` (extended — this file already hosts
++     `formatConcentration` tests, so `formatPollutant` was added here per the
++     plan's "extend the existing format test file" instruction; named with the
++     spec-016 AC ID since the file's own local `AC-2` label refers to a
++     different spec's numbering)
++     - `test('AC-2 (spec 016): formatPollutant — sub-1 always 2dp, else formatConcentration', ...)`
++       covers: `(0.35,'Przybliżona')==='0.35'`, `(0.35,'Dokładna')==='0.35'`,
++       `(0.999,'Przybliżona')==='1.00'`, `(0,'Przybliżona')==='0'`,
++       `(0,'Dokładna')` equals `formatConcentration(0,'Dokładna')`,
++       `(-0.35,'Przybliżona')` and `(-4.2,'Dokładna')` equal their
++       `formatConcentration` counterparts (pinned via direct comparison, not a
++       hardcoded literal, so the test documents "same path" rather than
++       duplicating formatConcentration's own math), `(333,'Przybliżona')==='333'`,
++       `(13.1,'Dokładna')==='13.1'`, `(13.1,'Przybliżona')==='13'`,
++       `(NaN,'Przybliżona')==='—'`, `(Infinity,'Dokładna')==='—'`.
++
++## Files touched
++- `src/core/air/pollutants.ts` (new)
++- `src/core/air/index.ts` (modified — 2 additions, `formatConcentration` untouched)
++- `src/core/air/__tests__/pollutants.test.ts` (new)
++- `src/core/air/__tests__/scale.test.ts` (modified — import + 1 new test)
++
++`ReadingDetail` in `src/core/air/history.ts` was **not touched** (Task 2 scope).
++
++## Gate results
++- `npm run typecheck` → clean, no errors.
++- `npm run lint` → 0 errors, 4 pre-existing warnings (App.tsx, mappers.ts,
++  HistoryChart.tsx, Toggle.tsx) — none in files touched by this task.
++- `npm test` → 55 suites / 195 tests, all passed.
++- Coverage (`--coverage` run, scoped to `src/core`): `src/core/air` at 100%
++  statements/branches/functions/lines (pollutants.ts, index.ts, history.ts all
++  100%). No "coverage threshold not met" error. (One pre-existing unrelated
++  0/0 file, `src/core/scene/index.ts`, is an empty barrel — not part of this
++  task and doesn't trip the aggregate `./src/core/` threshold.)
++
++## Deviations from plan
++None. Followed the plan's file layout choice (new `pollutants.ts` file rather
++than extending `history.ts`) and test-file placement (new file for AC-1,
++extending `scale.test.ts` for AC-2/formatPollutant) exactly as suggested.
++
++## Commit
++`feat(core): pollutant catalog + formatPollutant (AC-1, AC-2)`
+diff --git a/src/core/air/__tests__/pollutants.test.ts b/src/core/air/__tests__/pollutants.test.ts
+new file mode 100644
+index 0000000..8e79fe5
+--- /dev/null
++++ b/src/core/air/__tests__/pollutants.test.ts
+@@ -0,0 +1,12 @@
++import { POLLUTANTS } from '..';
++
++test('AC-1: POLLUTANTS pins the six-entry catalog, codes+labels+order', () => {
++  expect(POLLUTANTS).toEqual([
++    { code: 'PM10', label: 'PM10' },
++    { code: 'NO2', label: 'NO₂' },
++    { code: 'O3', label: 'O₃' },
++    { code: 'SO2', label: 'SO₂' },
++    { code: 'CO', label: 'CO' },
++    { code: 'C6H6', label: 'C₆H₆' },
++  ]);
++});
+diff --git a/src/core/air/__tests__/scale.test.ts b/src/core/air/__tests__/scale.test.ts
+index b263f29..d959016 100644
+--- a/src/core/air/__tests__/scale.test.ts
++++ b/src/core/air/__tests__/scale.test.ts
+@@ -1,14 +1,15 @@
+ import {
+   usAqiFromPm25,
+   displayValue,
+   formatConcentration,
++  formatPollutant,
+   scaleLabel,
+ } from '..';
+ 
+ test('AC-1: usAqiFromPm25 — full EPA table, gap-trunc, clamp, non-finite', () => {
+   const cases: [number, number][] = [
+     [0, 0],
+     [9, 38],
+     [12, 50],
+     [12.05, 50],
+     [12.1, 51],
+@@ -42,10 +43,31 @@ test('AC-3: displayValue', () => {
+     String(usAqiFromPm25(122)),
+   );
+   expect(displayValue(118, 13.1, 'µg/m³', 'Dokładna')).toBe('13.1');
+   expect(displayValue(118, 13.1, 'µg/m³', 'Przybliżona')).toBe('13');
+ });
+ test('AC-4b: scaleLabel', () => {
+   expect(scaleLabel('CAQI')).toBe('');
+   expect(scaleLabel('US AQI')).toBe('US AQI');
+   expect(scaleLabel('µg/m³')).toBe('µg/m³');
+ });
++
++test('AC-2 (spec 016): formatPollutant — sub-1 always 2dp, else formatConcentration', () => {
++  expect(formatPollutant(0.35, 'Przybliżona')).toBe('0.35');
++  expect(formatPollutant(0.35, 'Dokładna')).toBe('0.35');
++  expect(formatPollutant(0.999, 'Przybliżona')).toBe('1.00');
++  expect(formatPollutant(0, 'Przybliżona')).toBe('0');
++  expect(formatPollutant(0, 'Dokładna')).toBe(
++    formatConcentration(0, 'Dokładna'),
++  );
++  expect(formatPollutant(-0.35, 'Przybliżona')).toBe(
++    formatConcentration(-0.35, 'Przybliżona'),
++  );
++  expect(formatPollutant(-4.2, 'Dokładna')).toBe(
++    formatConcentration(-4.2, 'Dokładna'),
++  );
++  expect(formatPollutant(333, 'Przybliżona')).toBe('333');
++  expect(formatPollutant(13.1, 'Dokładna')).toBe('13.1');
++  expect(formatPollutant(13.1, 'Przybliżona')).toBe('13');
++  expect(formatPollutant(NaN, 'Przybliżona')).toBe('—');
++  expect(formatPollutant(Infinity, 'Dokładna')).toBe('—');
++});
+diff --git a/src/core/air/index.ts b/src/core/air/index.ts
+index e7fcc3a..d383d53 100644
+--- a/src/core/air/index.ts
++++ b/src/core/air/index.ts
+@@ -24,20 +24,21 @@ export function indexFromPm25(pm25: number): number {
+ // Poland-only and GIOŚ timestamps are Europe/Warsaw local.
+ export function formatFreshness(measuredAt: string, now: Date): string {
+   const then = new Date(measuredAt.replace(' ', 'T'));
+   const mins = Math.floor((now.getTime() - then.getTime()) / 60000);
+   if (mins < 1) return 'przed chwilą';
+   if (mins < 60) return `${mins} min temu`;
+   return `${Math.floor(mins / 60)} godz temu`;
+ }
+ 
+ export * from './history';
++export * from './pollutants';
+ 
+ import type { Scale, Precision } from '../settings';
+ 
+ const US_AQI_BANDS = [
+   { cLo: 0.0, cHi: 12.0, iLo: 0, iHi: 50 },
+   { cLo: 12.1, cHi: 35.4, iLo: 51, iHi: 100 },
+   { cLo: 35.5, cHi: 55.4, iLo: 101, iHi: 150 },
+   { cLo: 55.5, cHi: 150.4, iLo: 151, iHi: 200 },
+   { cLo: 150.5, cHi: 250.4, iLo: 201, iHi: 300 },
+   { cLo: 250.5, cHi: 350.4, iLo: 301, iHi: 400 },
+@@ -52,20 +53,30 @@ export function usAqiFromPm25(pm25: number): number {
+   if (c >= 500.4) return 500;
+   const b = US_AQI_BANDS.find(x => c <= x.cHi)!;
+   return Math.round(((b.iHi - b.iLo) / (b.cHi - b.cLo)) * (c - b.cLo) + b.iLo);
+ }
+ 
+ export function formatConcentration(v: number, precision: Precision): string {
+   if (!Number.isFinite(v)) return '—';
+   return precision === 'Dokładna' ? v.toFixed(1) : String(Math.round(v));
+ }
+ 
++// Tile formatting. For 0 < value < 1, ALWAYS 2 decimals (e.g. "0.35") so a real
++// sub-unit reading is never rounded away to "0". Otherwise defers to
++// formatConcentration(value, precision) — so value ≥ 1 keeps today's behavior
++// exactly, and negatives (rare GIOŚ artifacts) take that same path (not
++// special-cased). Non-finite → "—" via formatConcentration.
++export function formatPollutant(value: number, precision: Precision): string {
++  if (value > 0 && value < 1) return value.toFixed(2);
++  return formatConcentration(value, precision);
++}
++
+ export function displayValue(
+   index: number,
+   pm25: number,
+   scale: Scale,
+   precision: Precision,
+ ): string {
+   if (scale === 'US AQI') return String(usAqiFromPm25(pm25));
+   if (scale === 'µg/m³') return formatConcentration(pm25, precision);
+   return String(index); // CAQI
+ }
+diff --git a/src/core/air/pollutants.ts b/src/core/air/pollutants.ts
+new file mode 100644
+index 0000000..6fd9fd2
+--- /dev/null
++++ b/src/core/air/pollutants.ts
+@@ -0,0 +1,26 @@
++export type PollutantCode = 'PM10' | 'NO2' | 'O3' | 'SO2' | 'CO' | 'C6H6';
++
++export interface PollutantSpec {
++  code: PollutantCode;
++  label: string;
++}
++
++// SINGLE SOURCE OF TRUTH for which pollutants can appear, their display label,
++// and the stable render order. `code` is the canonical air-quality formula; it
++// EQUALS the GIOŚ sensor code so the data layer passes it verbatim to
++// findSensorId — no translation layer exists or is needed.
++export const POLLUTANTS: readonly PollutantSpec[] = [
++  { code: 'PM10', label: 'PM10' },
++  { code: 'NO2', label: 'NO₂' },
++  { code: 'O3', label: 'O₃' },
++  { code: 'SO2', label: 'SO₂' },
++  { code: 'CO', label: 'CO' },
++  { code: 'C6H6', label: 'C₆H₆' },
++];
++
++// One measured pollutant with its latest value (µg/m³). `label` is NOT stored
++// here — the UI derives it from POLLUTANTS by `code` (one home for label truth).
++export interface PollutantReading {
++  code: PollutantCode;
++  value: number;
++}

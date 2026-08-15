@@ -1,0 +1,99 @@
+# Task 1 — Core display math (US-AQI + display/format/scaleLabel)
+
+Worktree `/Users/curiosity/Documents/private/Powietrze/.claude/worktrees/m-loc-nearest`, branch `feature/m-settings-wired`.
+
+## Global Constraints
+- `src/core` PURE (zero React); TS strict, no `any`. Files ≤200, functions ≤40. Test names cite AC IDs. `src/core` 100% coverage gate.
+
+## Produces (Tasks 3/4 import)
+`usAqiFromPm25`, `displayValue`, `formatConcentration`, `scaleLabel` from `src/core/air`.
+
+## Files
+- Modify `src/core/air/index.ts` — APPEND the exports below (read it first; don't disturb existing). If adding them makes index.ts exceed 200 lines, put them in a new `src/core/air/scale.ts` and `export * from './scale'` in index.ts (import `type { Scale, Precision }` from `../settings` — type-only, no cycle).
+- Create `src/core/air/__tests__/scale.test.ts`.
+
+## Step 1: failing tests (`scale.test.ts`)
+```ts
+import { usAqiFromPm25, displayValue, formatConcentration, scaleLabel } from '..';
+
+test('AC-1: usAqiFromPm25 — full EPA table, gap-trunc, clamp, non-finite', () => {
+  const cases: [number, number][] = [
+    [0,0],[9,38],[12,50],[12.05,50],[12.1,51],[35.4,100],[45,124],[55.4,150],
+    [100,174],[150.4,200],[150.5,201],[250.4,300],[300,350],[350.4,400],
+    [400,434],[500.4,500],[600,500],[-1,0],[NaN,0],
+  ];
+  for (const [c, aqi] of cases) expect(usAqiFromPm25(c)).toBe(aqi);
+});
+test('AC-2: formatConcentration', () => {
+  expect(formatConcentration(13.1,'Przybliżona')).toBe('13');
+  expect(formatConcentration(13.1,'Dokładna')).toBe('13.1');
+  expect(formatConcentration(13,'Dokładna')).toBe('13.0');
+  expect(formatConcentration(12.5,'Przybliżona')).toBe('13');
+  expect(formatConcentration(NaN,'Dokładna')).toBe('—');
+});
+test('AC-3: displayValue', () => {
+  expect(displayValue(118,122,'CAQI','Przybliżona')).toBe('118');
+  expect(displayValue(118,122,'US AQI','Przybliżona')).toBe(String(usAqiFromPm25(122)));
+  expect(displayValue(118,13.1,'µg/m³','Dokładna')).toBe('13.1');
+  expect(displayValue(118,13.1,'µg/m³','Przybliżona')).toBe('13');
+});
+test('AC-4b: scaleLabel', () => {
+  expect(scaleLabel('CAQI')).toBe('');
+  expect(scaleLabel('US AQI')).toBe('US AQI');
+  expect(scaleLabel('µg/m³')).toBe('µg/m³');
+});
+```
+(Copy the `µg/m³` glyph — µ = U+00B5 — and `Przybliżona`/`Dokładna` exactly. The `—` is U+2014.)
+
+## Step 2: run → fail. Step 3: implement
+```ts
+import type { Scale, Precision } from '../settings';
+
+const US_AQI_BANDS = [
+  { cLo: 0.0, cHi: 12.0, iLo: 0, iHi: 50 },
+  { cLo: 12.1, cHi: 35.4, iLo: 51, iHi: 100 },
+  { cLo: 35.5, cHi: 55.4, iLo: 101, iHi: 150 },
+  { cLo: 55.5, cHi: 150.4, iLo: 151, iHi: 200 },
+  { cLo: 150.5, cHi: 250.4, iLo: 201, iHi: 300 },
+  { cLo: 250.5, cHi: 350.4, iLo: 301, iHi: 400 },
+  { cLo: 350.5, cHi: 500.4, iLo: 401, iHi: 500 },
+] as const;
+
+// EPA PM2.5 → US AQI. Discontinuous table, piecewise-linear per band. Truncate
+// the concentration to 0.1 µg/m³ (EPA) so the inter-band gaps never yield NaN.
+export function usAqiFromPm25(pm25: number): number {
+  if (!Number.isFinite(pm25) || pm25 <= 0) return 0;
+  const c = Math.floor(pm25 * 10) / 10;
+  if (c >= 500.4) return 500;
+  const b = US_AQI_BANDS.find(x => c <= x.cHi)!;
+  return Math.round(((b.iHi - b.iLo) / (b.cHi - b.cLo)) * (c - b.cLo) + b.iLo);
+}
+
+export function formatConcentration(v: number, precision: Precision): string {
+  if (!Number.isFinite(v)) return '—';
+  return precision === 'Dokładna' ? v.toFixed(1) : String(Math.round(v));
+}
+
+export function displayValue(
+  index: number, pm25: number, scale: Scale, precision: Precision,
+): string {
+  if (scale === 'US AQI') return String(usAqiFromPm25(pm25));
+  if (scale === 'µg/m³') return formatConcentration(pm25, precision);
+  return String(index); // CAQI
+}
+
+export function scaleLabel(scale: Scale): string {
+  return scale === 'CAQI' ? '' : scale;
+}
+```
+
+## Step 4: gate
+`npx jest src/core/air` PASS. `npm run typecheck` 0. Confirm `src/core` coverage 100% (AC-1 exercises every band).
+
+## Step 5: commit
+`git add src/core/air && git commit -m "feat(core): US-AQI + display/format helpers (AC-1..3,4b, spec 014)"`
+
+## Report
+Write your full report to `.superpowers/sdd/2026-08-15-m-settings-wired/task-1-report.md` BEFORE your final message. Final message: status, commit SHA, one-line test summary, concerns.
+
+Note: if a git/npm command fails with "Operation not permitted" (sandbox), retry with sandbox disabled.

@@ -1,0 +1,117 @@
+### commits
+1e0f26a feat(core): history math — buildHistory/opacity/height (AC-1..3, spec 012)
+
+### diff
+diff --git a/src/core/air/__tests__/history.test.ts b/src/core/air/__tests__/history.test.ts
+new file mode 100644
+index 0000000..f2fb704
+--- /dev/null
++++ b/src/core/air/__tests__/history.test.ts
+@@ -0,0 +1,47 @@
++import { buildHistory, historyBarOpacity, barHeightPct } from '../history';
++import { indexFromPm25 } from '..';
++
++test('AC-1: buildHistory drops nulls, keeps negatives, caps 24, oldest→newest', () => {
++  const pts = Array.from({ length: 30 }, (_, i) => ({
++    at: `2026-08-11 ${String(i % 24).padStart(2, '0')}:00:00`,
++    value: i,
++  }));
++  const h = buildHistory(pts);
++  expect(h).toHaveLength(24);
++  expect(h[0].at <= h[h.length - 1].at).toBe(true);
++  expect(
++    buildHistory([
++      { at: 'a', value: null },
++      { at: 'b', value: 5 },
++    ]),
++  ).toEqual([{ at: 'b', pm25: 5, index: indexFromPm25(5) }]);
++  expect(buildHistory([{ at: 'x', value: -3 }])).toEqual([
++    { at: 'x', pm25: -3, index: indexFromPm25(-3) },
++  ]);
++  expect(buildHistory([{ at: 'x', value: null }])).toEqual([]);
++  expect(
++    buildHistory(
++      [
++        { at: 'a', value: 1 },
++        { at: 'b', value: 2 },
++        { at: 'c', value: 3 },
++      ],
++      2,
++    ).map(p => p.pm25),
++  ).toEqual([2, 3]);
++});
++
++test('AC-2: historyBarOpacity ramps 0.55→1.0, count<=1 → 1.0', () => {
++  expect(historyBarOpacity(0, 24)).toBe(0.55);
++  expect(historyBarOpacity(23, 24)).toBe(1);
++  expect(historyBarOpacity(0, 1)).toBe(1);
++  expect(historyBarOpacity(1, 3)).toBeCloseTo(0.55 + 0.45 * 0.5, 10);
++});
++
++test('AC-3: barHeightPct clamps index/2 to [10,100]', () => {
++  expect(barHeightPct(0)).toBe(10);
++  expect(barHeightPct(20)).toBe(10);
++  expect(barHeightPct(40)).toBe(20);
++  expect(barHeightPct(200)).toBe(100);
++  expect(barHeightPct(300)).toBe(100);
++});
+diff --git a/src/core/air/history.ts b/src/core/air/history.ts
+new file mode 100644
+index 0000000..4d1a83f
+--- /dev/null
++++ b/src/core/air/history.ts
+@@ -0,0 +1,39 @@
++import { indexFromPm25 } from './index';
++
++export interface HourPoint {
++  at: string;
++  pm25: number;
++  index: number;
++}
++
++export interface ReadingDetail {
++  history: HourPoint[];
++  pm10?: number;
++  no2?: number;
++}
++
++// Raw hourly points → chart series: drop nulls (negatives kept — rare GIOŚ
++// artifacts, clamped harmlessly downstream), sort by `at` newest-first, take
++// `count`, return oldest→newest, each with its derived index.
++export function buildHistory(
++  points: { at: string; value: number | null }[],
++  count = 24,
++): HourPoint[] {
++  return points
++    .filter((p): p is { at: string; value: number } => p.value !== null)
++    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
++    .slice(0, count)
++    .reverse()
++    .map(p => ({ at: p.at, pm25: p.value, index: indexFromPm25(p.value) }));
++}
++
++// Bar opacity ramps 0.55 (oldest) → 1.0 (now). count <= 1 → 1.0 (no 0/0 NaN).
++export function historyBarOpacity(i: number, count: number): number {
++  if (count <= 1) return 1;
++  return 0.55 + 0.45 * (i / (count - 1));
++}
++
++// Bar height as % of the track: clamp(index/2, 10, 100) (design bar formula).
++export function barHeightPct(index: number): number {
++  return Math.min(100, Math.max(10, index / 2));
++}
+diff --git a/src/core/air/index.ts b/src/core/air/index.ts
+index 975dbb0..8ab7e4d 100644
+--- a/src/core/air/index.ts
++++ b/src/core/air/index.ts
+@@ -21,8 +21,10 @@ export function indexFromPm25(pm25: number): number {
+ // Poland-only and GIOŚ timestamps are Europe/Warsaw local.
+ export function formatFreshness(measuredAt: string, now: Date): string {
+   const then = new Date(measuredAt.replace(' ', 'T'));
+   const mins = Math.floor((now.getTime() - then.getTime()) / 60000);
+   if (mins < 1) return 'przed chwilą';
+   if (mins < 60) return `${mins} min temu`;
+   return `${Math.floor(mins / 60)} godz temu`;
+ }
++
++export * from './history';

@@ -1,0 +1,229 @@
+### commits
+bb3e2ea feat(ustawienia): make loc/precision/scale live, hide widget row (AC-8, spec 014)
+
+### stat
+ src/features/ustawienia/UstawieniaScreen.tsx       | 16 +++++++--------
+ .../ustawienia/__tests__/UstawieniaScreen.test.tsx | 24 +++++++++++-----------
+ 2 files changed, 19 insertions(+), 21 deletions(-)
+
+### diff
+diff --git a/src/features/ustawienia/UstawieniaScreen.tsx b/src/features/ustawienia/UstawieniaScreen.tsx
+index 866c836..f27856f 100644
+--- a/src/features/ustawienia/UstawieniaScreen.tsx
++++ b/src/features/ustawienia/UstawieniaScreen.tsx
+@@ -8,37 +8,39 @@ import { colors } from '../../shared/tokens';
+ import { useSettings, type SettingsApi } from '../../shared/settings';
+ import { SettingRow, rowHeaderStyles } from './SettingRow';
+ 
+ type GroupProps = Pick<SettingsApi, 'settings' | 'set'>;
+ 
+ // A horizontal row wired to a boolean setting via a Toggle.
+ function ToggleRow({
+   keyName,
+   title,
+   subtitle,
++  soon,
+   testID,
+   value,
+   onValueChange,
+ }: {
+   keyName: string;
+   title: string;
+   subtitle?: string;
++  soon?: boolean;
+   testID: string;
+   value: boolean;
+   onValueChange: (next: boolean) => void;
+ }) {
+   return (
+     <SettingRow
+       keyName={keyName}
+       title={title}
+       subtitle={subtitle}
+-      soon
++      soon={soon}
+       trailing={
+         <Toggle testID={testID} value={value} onValueChange={onValueChange} />
+       }
+     />
+   );
+ }
+ 
+ // A row whose control sits below its title (segmented control / slider).
+ function StackedRow({
+   keyName,
+@@ -69,38 +71,39 @@ function StackedRow({
+ function LokalizacjaGroup({ settings, set }: GroupProps) {
+   return (
+     <SettingsGroup label="LOKALIZACJA">
+       <ToggleRow
+         keyName="loc"
+         title="Użyj mojej lokalizacji"
+         testID="toggle-loc"
+         value={settings.loc}
+         onValueChange={v => set('loc', v)}
+       />
+-      <StackedRow keyName="precision" title="Dokładność" soon>
++      <StackedRow keyName="precision" title="Dokładność">
+         <SegmentedControl
+           testID="seg-precision"
+           options={['Przybliżona', 'Dokładna'] as const}
+           value={settings.precision}
+           onChange={v => set('precision', v)}
+         />
+       </StackedRow>
+     </SettingsGroup>
+   );
+ }
+ 
+ function PowiadomieniaGroup({ settings, set }: GroupProps) {
+   return (
+     <SettingsGroup label="POWIADOMIENIA">
+       <ToggleRow
+         keyName="alert"
+         title="Alert smogowy"
++        soon
+         testID="toggle-alert"
+         value={settings.alert}
+         onValueChange={v => set('alert', v)}
+       />
+       <StackedRow keyName="threshold" title="Próg alertu" soon>
+         <ThresholdSlider
+           testID="slider-threshold"
+           value={settings.threshold}
+           onChange={v => set('threshold', v)}
+         />
+@@ -108,38 +111,33 @@ function PowiadomieniaGroup({ settings, set }: GroupProps) {
+       <SettingRow
+         keyName="quiet"
+         title="Godziny ciszy"
+         soon
+         value="22:00 – 07:00"
+       />
+       <ToggleRow
+         keyName="morning"
+         title="Poranne podsumowanie"
+         subtitle="07:30"
++        soon
+         testID="toggle-morning"
+         value={settings.morning}
+         onValueChange={v => set('morning', v)}
+       />
+     </SettingsGroup>
+   );
+ }
+ 
+ function WygladGroup({ settings, set }: GroupProps) {
+   return (
+     <SettingsGroup label="WIDŻET I WYGLĄD">
+-      <SettingRow
+-        keyName="widget"
+-        title="Stacja widżetu"
+-        soon
+-        value="Automatyczna"
+-      />
+-      <StackedRow keyName="scale" title="Skala indeksu" soon>
++      <StackedRow keyName="scale" title="Skala indeksu">
+         <SegmentedControl
+           testID="seg-scale"
+           options={['CAQI', 'US AQI', 'µg/m³'] as const}
+           value={settings.scale}
+           onChange={v => set('scale', v)}
+         />
+       </StackedRow>
+     </SettingsGroup>
+   );
+ }
+diff --git a/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx b/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
+index 1f09e27..98fcb8c 100644
+--- a/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
++++ b/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
+@@ -41,76 +41,76 @@ test('AC-17: header + four section labels in order', async () => {
+     'Ustawienia',
+     'LOKALIZACJA',
+     'POWIADOMIENIA',
+     'WIDŻET I WYGLĄD',
+     'DANE',
+   ]) {
+     expect(screen.getByText(label)).toBeTruthy();
+   }
+ });
+ 
+-test('AC-18: exact Polish copy for every row + footer, chevron dropped', async () => {
++test('AC-18: exact Polish copy for every row + footer, widget row removed', async () => {
+   await renderScreen(store());
+   for (const t of [
+     'Użyj mojej lokalizacji',
+     'Dokładność',
+     'Alert smogowy',
+     'Próg alertu',
+     'Godziny ciszy',
+     '22:00 – 07:00',
+     'Poranne podsumowanie',
+     '07:30',
+-    'Stacja widżetu',
+-    'Automatyczna',
+     'Skala indeksu',
+     'Źródło',
+     'GIOŚ',
+     'Częstotliwość odświeżania',
+     '15 min',
+     'Dane: GIOŚ · Open-Meteo',
+     'Bez konta. Ulubione zostają na telefonie.',
+   ]) {
+     expect(screen.getByText(t)).toBeTruthy();
+   }
+   expect(screen.queryByText('Automatyczna ›')).toBeNull();
++  expect(screen.queryByText('Stacja widżetu')).toBeNull();
++  expect(screen.queryByText('Automatyczna')).toBeNull();
++  expect(screen.queryByTestId('setting-widget')).toBeNull();
+ });
+ 
+ test('AC-19: toggling Alert smogowy persists alert inverted', async () => {
+   const s = store();
+   await renderScreen(s);
+   fireEvent.press(screen.getByTestId('toggle-alert'));
+   await waitFor(() => expect(s.saved.at(-1)?.alert).toBe(false));
+ });
+ 
+ test('AC-20: choosing Dokładna persists precision', async () => {
+   const s = store();
+   await renderScreen(s);
+   fireEvent.press(screen.getByTestId('seg-precision-Dokładna'));
+   await waitFor(() => expect(s.saved.at(-1)?.precision).toBe('Dokładna'));
+ });
+ 
+-test('AC-21: Wkrótce tags on unwired/placeholder rows only', async () => {
++test('AC-8/AC-21: Wkrótce tags only on still-unwired rows (alert, threshold, quiet, morning)', async () => {
+   await renderScreen(store());
++  for (const k of ['alert', 'threshold', 'quiet', 'morning']) {
++    expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
++  }
+   for (const k of [
+     'loc',
+     'precision',
+-    'alert',
+-    'threshold',
+-    'quiet',
+-    'morning',
+-    'widget',
+     'scale',
++    'widget',
++    'source',
++    'refresh',
+   ]) {
+-    expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
++    expect(screen.queryByTestId(`wkrotce-${k}`)).toBeNull();
+   }
+-  expect(screen.queryByTestId('wkrotce-source')).toBeNull();
+-  expect(screen.queryByTestId('wkrotce-refresh')).toBeNull();
+ });
+ 
+ test('AC-22: preloaded non-default store hydrates the controls', async () => {
+   await renderScreen(store({ ...DEFAULT_SETTINGS, alert: false }));
+   await waitFor(() => {
+     const track = StyleSheet.flatten(
+       screen.getByTestId('toggle-alert').props.style,
+     );
+     expect(track.justifyContent).toBe('flex-start'); // off
+   });

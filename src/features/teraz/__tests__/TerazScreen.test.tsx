@@ -22,8 +22,10 @@ const detail: ReadingDetail = {
     { at: 'a', pm25: 10, index: 10 },
     { at: 'b', pm25: 20, index: 20 },
   ],
-  pm10: 40,
-  no2: 22,
+  pollutants: [
+    { code: 'PM10', value: 40 },
+    { code: 'NO2', value: 22 },
+  ],
 };
 const detailedSource = (): AirQualitySource => ({
   ...fakeAirSource(),
