@@ -1,5 +1,3 @@
-import { NativeModules } from 'react-native';
-import { createNativeWidgetSync } from '..';
 import type { WidgetSnapshot } from '../../../core/widget';
 
 const SNAP: WidgetSnapshot = {
@@ -16,25 +14,34 @@ const SNAP: WidgetSnapshot = {
   measuredAt: 't',
 };
 
-// react-native's NativeModules type is a loose index; narrow it here so the
-// test can add/remove the WidgetSync entry without `any`.
-type NativeModulesRecord = Record<string, unknown>;
-const nativeModules = NativeModules as unknown as NativeModulesRecord;
-
+// The Turbo Module is a static import in the adapter, so each case mocks
+// `react-native-widget-sync`'s default export (the module, or null when absent)
+// and re-requires the adapter fresh.
 describe('createNativeWidgetSync (AC-4)', () => {
+  beforeEach(() => {
+    jest.resetModules();
+  });
   afterEach(() => {
-    delete nativeModules.WidgetSync;
+    jest.resetModules();
   });
 
   test('AC-4: native module absent → publish is a safe no-op', () => {
-    delete nativeModules.WidgetSync;
+    jest.doMock('react-native-widget-sync', () => ({
+      __esModule: true,
+      default: null,
+    }));
+    const { createNativeWidgetSync } = require('..');
     expect(() => createNativeWidgetSync().publish(SNAP)).not.toThrow();
   });
 
   test('AC-4: module present → writeSnapshot(json) then reloadTimelines', () => {
     const writeSnapshot = jest.fn();
     const reloadTimelines = jest.fn();
-    nativeModules.WidgetSync = { writeSnapshot, reloadTimelines };
+    jest.doMock('react-native-widget-sync', () => ({
+      __esModule: true,
+      default: { writeSnapshot, reloadTimelines },
+    }));
+    const { createNativeWidgetSync } = require('..');
 
     createNativeWidgetSync().publish(SNAP);
 

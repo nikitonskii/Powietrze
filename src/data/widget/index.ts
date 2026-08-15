@@ -1,26 +1,17 @@
-import { NativeModules } from 'react-native';
+import WidgetSyncModule from 'react-native-widget-sync';
 import type { WidgetSync, WidgetSnapshot } from '../../core/widget';
 
-// The native RCTBridgeModule seam (Task 4, Swift). Typed locally rather than
-// widening NativeModules — the module is absent on Android / pre-extension
-// builds, hence the optional type.
-interface NativeWidgetSyncModule {
-  writeSnapshot(json: string): void;
-  reloadTimelines(): void;
-}
-
-// The @react-native implementation of the pure `WidgetSync` seam. Writes the
-// baked snapshot into the App-Group UserDefaults and reloads the widget's
-// timelines. Safe no-op when the native module isn't present (Android, or
-// iOS before the widget extension gate is built) — the app must never crash
-// because the widget can't be reached.
+// Adapts the app's pure `WidgetSync` seam onto the generic `react-native-widget-sync`
+// Turbo Module (New Architecture): serialize the baked snapshot to JSON, write it to
+// the App Group, and reload the widget's timelines. `WidgetSyncModule` is null when
+// the native module is absent (Android, or an iOS build before the widget extension
+// gate) — publish then no-ops, so the app never crashes because the widget is unreachable.
 export function createNativeWidgetSync(): WidgetSync {
-  const mod = NativeModules.WidgetSync as NativeWidgetSyncModule | undefined;
   return {
     publish(snapshot: WidgetSnapshot) {
-      if (!mod) return;
-      mod.writeSnapshot(JSON.stringify(snapshot));
-      mod.reloadTimelines();
+      if (!WidgetSyncModule) return;
+      WidgetSyncModule.writeSnapshot(JSON.stringify(snapshot));
+      WidgetSyncModule.reloadTimelines();
     },
   };
 }
