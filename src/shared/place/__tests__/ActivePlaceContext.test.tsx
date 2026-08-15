@@ -10,8 +10,19 @@ import {
   type SourceForPlace,
 } from '../PlaceSourceContext';
 import { ActivePlaceProvider, useActivePlace } from '../ActivePlaceContext';
+import { SettingsProvider, useSettings } from '../../settings';
 import type { Station } from '../../../core/geo';
 import type { Reading } from '../../../core/air';
+import {
+  DEFAULT_SETTINGS,
+  type Settings,
+  type SettingsStore,
+} from '../../../core/settings';
+
+const store = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
+  load: async () => s,
+  save: async () => {},
+});
 
 const warsaw: Station = {
   id: 530,
@@ -60,15 +71,76 @@ function Probe() {
 test('AC 006-6: defaults to location, then setActive switches the reading', async () => {
   render(
     <PlaceSourceProvider sourceForPlace={sourceForPlace}>
-      <ActivePlaceProvider>
-        <Probe />
-      </ActivePlaceProvider>
+      <SettingsProvider store={store()}>
+        <ActivePlaceProvider>
+          <Probe />
+        </ActivePlaceProvider>
+      </SettingsProvider>
     </PlaceSourceProvider>,
   );
   await waitFor(() =>
     expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
   );
   fireEvent.press(screen.getByTestId('pick'));
+  await waitFor(() =>
+    expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
+  );
+});
+
+test('AC-6: defaultStation is used when loc setting is off', async () => {
+  render(
+    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+      <SettingsProvider store={store({ ...DEFAULT_SETTINGS, loc: false })}>
+        <ActivePlaceProvider defaultStation={warsaw}>
+          <Probe />
+        </ActivePlaceProvider>
+      </SettingsProvider>
+    </PlaceSourceProvider>,
+  );
+  await waitFor(() =>
+    expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
+  );
+});
+
+test('AC-6: defaultStation is ignored when loc setting is on', async () => {
+  render(
+    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+      <SettingsProvider store={store({ ...DEFAULT_SETTINGS, loc: true })}>
+        <ActivePlaceProvider defaultStation={warsaw}>
+          <Probe />
+        </ActivePlaceProvider>
+      </SettingsProvider>
+    </PlaceSourceProvider>,
+  );
+  await waitFor(() =>
+    expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
+  );
+});
+
+function LocToggle() {
+  const { set } = useSettings();
+  return (
+    <Pressable testID="toggle-loc" onPress={() => set('loc', false)}>
+      <Text>toggle</Text>
+    </Pressable>
+  );
+}
+
+test('AC-6: turning loc off resets active to the default station', async () => {
+  render(
+    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+      <SettingsProvider store={store({ ...DEFAULT_SETTINGS, loc: true })}>
+        <ActivePlaceProvider defaultStation={warsaw}>
+          <Probe />
+          <LocToggle />
+        </ActivePlaceProvider>
+      </SettingsProvider>
+    </PlaceSourceProvider>,
+  );
+  await waitFor(() =>
+    expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
+  );
+  fireEvent.press(screen.getByTestId('toggle-loc'));
   await waitFor(() =>
     expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
   );

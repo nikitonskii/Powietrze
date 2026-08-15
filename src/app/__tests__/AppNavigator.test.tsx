@@ -44,11 +44,11 @@ const renderNav = () =>
       <StationsProvider stations={[]}>
         <PlaceSourceProvider sourceForPlace={() => fakeAirSource()}>
           <FavoritesProvider store={emptyStore}>
-            <ActivePlaceProvider>
-              <SettingsProvider store={settingsStore}>
+            <SettingsProvider store={settingsStore}>
+              <ActivePlaceProvider>
                 <AppNavigator />
-              </SettingsProvider>
-            </ActivePlaceProvider>
+              </ActivePlaceProvider>
+            </SettingsProvider>
           </FavoritesProvider>
         </PlaceSourceProvider>
       </StationsProvider>
@@ -96,11 +96,11 @@ test('AC 006-10: Teraz tab tint is the neutral accent while the reading is loadi
     <StationsProvider stations={[]}>
       <PlaceSourceProvider sourceForPlace={() => pendingAirSource()}>
         <FavoritesProvider store={emptyStore}>
-          <ActivePlaceProvider>
-            <SettingsProvider store={settingsStore}>
+          <SettingsProvider store={settingsStore}>
+            <ActivePlaceProvider>
               <AppNavigator />
-            </SettingsProvider>
-          </ActivePlaceProvider>
+            </ActivePlaceProvider>
+          </SettingsProvider>
         </FavoritesProvider>
       </PlaceSourceProvider>
     </StationsProvider>,

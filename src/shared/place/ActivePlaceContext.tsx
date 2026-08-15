@@ -1,12 +1,19 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
 import type { ReadingDetail } from '../../core/air';
-import { LOCATION_PLACE, type ActivePlace } from '../../core/places';
+import type { Station } from '../../core/geo';
+import {
+  defaultPlace,
+  LOCATION_PLACE,
+  type ActivePlace,
+} from '../../core/places';
+import { useSettings } from '../settings';
 import { usePlaceDetail } from './usePlaceDetail';
 import { usePlaceReading, type ReadingState } from './usePlaceReading';
 
@@ -19,9 +26,24 @@ type ActivePlaceValue = {
 const Ctx = createContext<ActivePlaceValue | null>(null);
 
 // Single source of truth for the active place + its live reading (Teraz + tab tint).
-// Default is the device location; resets on each launch (in-memory).
-export function ActivePlaceProvider({ children }: { children: ReactNode }) {
-  const [active, setActive] = useState<ActivePlace>(LOCATION_PLACE);
+// Default follows the `loc` setting: location when on, else `defaultStation`
+// (falls back to LOCATION_PLACE when no defaultStation is given, e.g. in tests).
+export function ActivePlaceProvider({
+  defaultStation,
+  children,
+}: {
+  defaultStation?: Station;
+  children: ReactNode;
+}) {
+  const { settings } = useSettings();
+  const target = defaultStation
+    ? defaultPlace(settings.loc, defaultStation)
+    : LOCATION_PLACE;
+  const [active, setActive] = useState<ActivePlace>(() => target);
+  useEffect(() => {
+    setActive(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset default on loc change, not on the fresh `target` object each render
+  }, [settings.loc, defaultStation]);
   const state = usePlaceReading(active);
   const { detail } = usePlaceDetail(active);
   const value = useMemo<ActivePlaceValue>(
