@@ -1,6 +1,6 @@
 # Spec 016: Data-driven pollutant tiles (O₃/SO₂/CO/C₆H₆ where measured)
 
-**Status:** draft
+**Status:** implemented (AC-1..5 automated; AC-6 verified live on sim) · Journal: `docs/harness/16-pollutant-tiles.md`
 **Milestone:** M-pollutant-tiles · **No new dependency** (Skia/on-board only rule holds)
 **Sources:** `design/README.md` (Teraz detail: pollutant tiles under the 24h chart); live GIOŚ v1 API (`station/sensors/{id}`, `data/getData/{sensorId}`)
 **Critic:** SHIP-WITH-FIXES — B1/B2 + S1–S8 folded in (see `.superpowers/sdd/critic-016.md`).
