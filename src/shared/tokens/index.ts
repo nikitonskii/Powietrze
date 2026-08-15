@@ -20,6 +20,10 @@ export const colors = {
     border: 'rgba(255,255,255,0.08)',
   },
   card: 'rgba(255,255,255,0.06)',
+  // Opaque equivalent of `card` composited over `base` — visually identical over
+  // the solid Miejsca screen, but OPAQUE so a swiped row occludes the delete
+  // action behind it (a translucent foreground lets the action bleed through).
+  cardSolid: '#16181c',
   glass: 'rgba(255,255,255,0.07)',
   glassBorder: 'rgba(255,255,255,0.09)',
   control: {
