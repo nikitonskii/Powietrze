@@ -75,7 +75,9 @@ const styles = StyleSheet.create({
     gap: spacing.rowGap,
     paddingVertical: spacing.rowV,
     paddingHorizontal: spacing.cardH,
-    backgroundColor: colors.card,
+    // Opaque (not translucent `card`) so a swipe-to-delete row occludes the
+    // revealed "Usuń" action instead of letting it bleed through the row.
+    backgroundColor: colors.cardSolid,
     borderRadius: 22,
   },
   left: { flex: 1 },
