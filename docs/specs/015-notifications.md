@@ -1,6 +1,6 @@
 # Spec 015: Notifications — permission + daily morning summary (foreground slice)
 
-**Status:** draft
+**Status:** implemented (AC-1..5 automated; AC-6 pending human sim evidence) · Journal: `docs/harness/15-notifications.md`
 **Milestone:** M-notifications (foreground slice) · **Dependency:** ADR-013 (@notifee/react-native)
 **Sources:** `design/README.md` §3 (POWIADOMIENIA: Poranne podsumowanie 07:30); `design/Powietrze.dc.html` lines 216–219
 
