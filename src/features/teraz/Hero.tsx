@@ -14,12 +14,16 @@ export interface Place {
 export function Hero({
   scene,
   place,
-  pm25,
+  value,
+  pm25Label,
+  scaleCaption,
   eyebrow,
 }: {
   scene: Scene;
   place: Place;
-  pm25?: number; // real measured µg/m³; falls back to the scene-derived value
+  value: string; // pre-formatted big number, per the active scale/precision
+  pm25Label: string | null; // 'PM2.5 · … µg/m³' sub-line; null hides it (CAQI already is PM2.5)
+  scaleCaption: string; // active scale label shown under the number; '' hides it
   eyebrow: string; // 'TWOJA LOKALIZACJA' for your location, 'MIEJSCE' for a selected place
 }) {
   return (
@@ -39,15 +43,22 @@ export function Hero({
           color={scene.key}
           style={[styles.number, { textShadowColor: `${scene.key}88` }]}
         >
-          {String(place.index)}
+          {value}
         </Text>
       </NumberGlow>
+      {scaleCaption ? (
+        <Text variant="station" color={colors.text.dim} style={styles.caption}>
+          {scaleCaption}
+        </Text>
+      ) : null}
       <Text variant="band" color={scene.key}>
         {scene.band}
       </Text>
-      <Text variant="pm" color={colors.text.mid} style={styles.pm}>
-        PM2.5 · {Math.round(pm25 ?? scene.pm25)} µg/m³
-      </Text>
+      {pm25Label !== null ? (
+        <Text variant="pm" color={colors.text.mid} style={styles.pm}>
+          {pm25Label}
+        </Text>
+      ) : null}
       <Text variant="advice" color={colors.text.high} style={styles.advice}>
         {scene.advice}
       </Text>
@@ -64,6 +75,7 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 42,
   },
+  caption: { marginTop: 2 },
   pm: { marginTop: 8 },
   advice: { marginTop: 12, maxWidth: 280, textAlign: 'center' },
 });

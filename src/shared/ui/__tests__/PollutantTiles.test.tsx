@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react-native';
 import { PollutantTiles } from '../PollutantTiles';
 
 test('AC-9: PM10 + NO₂ labels, values, µg/m³ units', async () => {
-  await render(<PollutantTiles pm10={40} no2={22} />);
+  await render(<PollutantTiles pm10={40} no2={22} precision="Przybliżona" />);
   expect(screen.getByText('PM10')).toBeTruthy();
   expect(screen.getByText('NO₂')).toBeTruthy();
   expect(screen.getByText('40')).toBeTruthy();
@@ -11,6 +11,20 @@ test('AC-9: PM10 + NO₂ labels, values, µg/m³ units', async () => {
 });
 
 test('AC-9: missing value → —', async () => {
-  await render(<PollutantTiles pm10={40} no2={undefined} />);
+  await render(
+    <PollutantTiles pm10={40} no2={undefined} precision="Przybliżona" />,
+  );
   expect(screen.getByText('—')).toBeTruthy();
+});
+
+test('AC-7: precision Dokładna formats with one decimal', async () => {
+  await render(<PollutantTiles pm10={13.1} no2={22} precision="Dokładna" />);
+  expect(screen.getByText('13.1')).toBeTruthy();
+  expect(screen.getByText('22.0')).toBeTruthy();
+});
+
+test('AC-7: precision Przybliżona rounds to an integer', async () => {
+  await render(<PollutantTiles pm10={13.1} no2={22} precision="Przybliżona" />);
+  expect(screen.getByText('13')).toBeTruthy();
+  expect(screen.getByText('22')).toBeTruthy();
 });

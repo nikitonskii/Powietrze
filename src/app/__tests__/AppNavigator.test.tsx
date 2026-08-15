@@ -97,7 +97,9 @@ test('AC 006-10: Teraz tab tint is the neutral accent while the reading is loadi
       <PlaceSourceProvider sourceForPlace={() => pendingAirSource()}>
         <FavoritesProvider store={emptyStore}>
           <ActivePlaceProvider>
-            <AppNavigator />
+            <SettingsProvider store={settingsStore}>
+              <AppNavigator />
+            </SettingsProvider>
           </ActivePlaceProvider>
         </FavoritesProvider>
       </PlaceSourceProvider>
