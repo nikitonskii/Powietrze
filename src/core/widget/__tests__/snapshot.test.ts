@@ -86,4 +86,11 @@ test('AC-3(core): identity changes with place/measuredAt/scale/precision, stable
       ),
     ),
   ).not.toBe(widgetSnapshotIdentity(a));
+  // precision toggle in CAQI mode changes the TILES (13 → 13.0) but not the
+  // headline — identity must still change so the widget's tiles don't go stale.
+  expect(
+    widgetSnapshotIdentity(
+      buildWidgetSnapshot(reading, detail, 'CAQI', 'Dokładna'),
+    ),
+  ).not.toBe(widgetSnapshotIdentity(a));
 });

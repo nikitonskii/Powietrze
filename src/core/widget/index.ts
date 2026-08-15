@@ -63,9 +63,11 @@ export function buildWidgetSnapshot(
 }
 
 // Stable string that changes iff a republish is warranted (drives the
-// provider's dedup).
+// provider's dedup). Keys on the FULL drawn snapshot so any visible change
+// triggers a republish — notably a precision toggle changes the pollutant
+// tiles (13 → 13.0) without changing the headline in CAQI mode, so keying on
+// displayValue alone would leave the widget's tiles stale. `version` is a
+// constant so including it is harmless.
 export function widgetSnapshotIdentity(s: WidgetSnapshot): string {
-  return [s.city, s.stationLabel, s.measuredAt, s.displayValue, s.band].join(
-    '|',
-  );
+  return JSON.stringify(s);
 }
