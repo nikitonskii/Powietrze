@@ -118,7 +118,6 @@ function PowiadomieniaGroup({ settings, set }: GroupProps) {
         keyName="morning"
         title="Poranne podsumowanie"
         subtitle="07:30"
-        soon
         testID="toggle-morning"
         value={settings.morning}
         onValueChange={v => set('morning', v)}

@@ -68,6 +68,30 @@ jest.mock('react-native-safe-area-context', () => ({
   ...require('react-native-safe-area-context/jest/mock').default,
 }));
 
+// @notifee/react-native: hand-rolled mock (its shipped `/jest` mock hides behind
+// an ESM exports subpath our CJS transform can't load — same as async-storage).
+// The default export is the notifee client (methods the adapter calls); the enums
+// are named exports. jest.fn()s let AC-3 assert exact trigger config; the adapter's
+// own tests set return values (requestPermission authorization status) per case.
+jest.mock('@notifee/react-native', () => ({
+  __esModule: true,
+  default: {
+    requestPermission: jest.fn(async () => ({ authorizationStatus: 1 })),
+    createChannel: jest.fn(async () => 'default'),
+    createTriggerNotification: jest.fn(async () => undefined),
+    cancelTriggerNotification: jest.fn(async () => undefined),
+  },
+  AuthorizationStatus: {
+    NOT_DETERMINED: -1,
+    DENIED: 0,
+    AUTHORIZED: 1,
+    PROVISIONAL: 2,
+  },
+  TriggerType: { TIMESTAMP: 0, INTERVAL: 1 },
+  RepeatFrequency: { NONE: -1, HOURLY: 0, DAILY: 1, WEEKLY: 2 },
+  AndroidImportance: { DEFAULT: 3, HIGH: 4 },
+}));
+
 // Reanimated 4 test mock — worklets become no-ops under Jest. The bundled
 // mock doesn't surface a couple of newer hooks as named exports, so fill them.
 jest.mock('react-native-reanimated', () => {
