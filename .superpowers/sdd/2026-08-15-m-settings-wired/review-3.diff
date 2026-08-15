@@ -1,0 +1,653 @@
+### commits
+907f77a feat(teraz): scale/precision drive the hero number + tiles (AC-5,5b,7, spec 014)
+
+### stat
+ src/app/__tests__/AppNavigator.test.tsx            |  4 +-
+ src/features/teraz/Hero.tsx                        | 24 +++++--
+ src/features/teraz/TerazScreen.tsx                 | 38 +++++++++-
+ src/features/teraz/__tests__/Hero.test.tsx         | 84 ++++++++++++++++++++--
+ .../teraz/__tests__/TerazScreen.nearest.test.tsx   | 21 ++++--
+ src/features/teraz/__tests__/TerazScreen.test.tsx  | 48 +++++++++++--
+ src/shared/ui/PollutantTiles.tsx                   | 30 ++++++--
+ src/shared/ui/__tests__/PollutantTiles.test.tsx    | 18 ++++-
+ 8 files changed, 231 insertions(+), 36 deletions(-)
+
+### diff
+diff --git a/src/app/__tests__/AppNavigator.test.tsx b/src/app/__tests__/AppNavigator.test.tsx
+index 28973cd..6523e40 100644
+--- a/src/app/__tests__/AppNavigator.test.tsx
++++ b/src/app/__tests__/AppNavigator.test.tsx
+@@ -90,21 +90,23 @@ test('AC 006-10: Teraz tab tint comes from the active reading index, not MOCK_PL
+     colorOf(within(screen.getByTestId('tab-Miejsca')).getByText('Miejsca')),
+   ).toBe(colors.accent);
+ });
+ 
+ test('AC 006-10: Teraz tab tint is the neutral accent while the reading is loading', async () => {
+   await render(
+     <StationsProvider stations={[]}>
+       <PlaceSourceProvider sourceForPlace={() => pendingAirSource()}>
+         <FavoritesProvider store={emptyStore}>
+           <ActivePlaceProvider>
+-            <AppNavigator />
++            <SettingsProvider store={settingsStore}>
++              <AppNavigator />
++            </SettingsProvider>
+           </ActivePlaceProvider>
+         </FavoritesProvider>
+       </PlaceSourceProvider>
+     </StationsProvider>,
+   );
+   await screen.findByTestId('teraz-loading'); // no reading yet
+   expect(
+     colorOf(within(screen.getByTestId('tab-Teraz')).getByText('Teraz')),
+   ).toBe(colors.accent);
+ });
+diff --git a/src/features/teraz/Hero.tsx b/src/features/teraz/Hero.tsx
+index d252a1b..69bcaee 100644
+--- a/src/features/teraz/Hero.tsx
++++ b/src/features/teraz/Hero.tsx
+@@ -7,63 +7,75 @@ import { colors } from '../../shared/tokens';
+ export interface Place {
+   city: string;
+   station: string;
+   freshness: string;
+   index: number;
+ }
+ 
+ export function Hero({
+   scene,
+   place,
+-  pm25,
++  value,
++  pm25Label,
++  scaleCaption,
+   eyebrow,
+ }: {
+   scene: Scene;
+   place: Place;
+-  pm25?: number; // real measured µg/m³; falls back to the scene-derived value
++  value: string; // pre-formatted big number, per the active scale/precision
++  pm25Label: string | null; // 'PM2.5 · … µg/m³' sub-line; null hides it (CAQI already is PM2.5)
++  scaleCaption: string; // active scale label shown under the number; '' hides it
+   eyebrow: string; // 'TWOJA LOKALIZACJA' for your location, 'MIEJSCE' for a selected place
+ }) {
+   return (
+     <View style={styles.wrap}>
+       <Text variant="label" color={colors.text.label}>
+         {eyebrow}
+       </Text>
+       <Text variant="city" style={styles.city}>
+         {place.city}
+       </Text>
+       <Text variant="station" color={colors.text.dim} style={styles.station}>
+         {place.station} · {place.freshness}
+       </Text>
+       <NumberGlow color={scene.key}>
+         <Text
+           variant="index"
+           color={scene.key}
+           style={[styles.number, { textShadowColor: `${scene.key}88` }]}
+         >
+-          {String(place.index)}
++          {value}
+         </Text>
+       </NumberGlow>
++      {scaleCaption ? (
++        <Text variant="station" color={colors.text.dim} style={styles.caption}>
++          {scaleCaption}
++        </Text>
++      ) : null}
+       <Text variant="band" color={scene.key}>
+         {scene.band}
+       </Text>
+-      <Text variant="pm" color={colors.text.mid} style={styles.pm}>
+-        PM2.5 · {Math.round(pm25 ?? scene.pm25)} µg/m³
+-      </Text>
++      {pm25Label !== null ? (
++        <Text variant="pm" color={colors.text.mid} style={styles.pm}>
++          {pm25Label}
++        </Text>
++      ) : null}
+       <Text variant="advice" color={colors.text.high} style={styles.advice}>
+         {scene.advice}
+       </Text>
+     </View>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+   wrap: { alignItems: 'center' },
+   city: { marginTop: 8 },
+   station: { marginTop: 4 },
+   number: {
+     marginTop: 24,
+     textShadowOffset: { width: 0, height: 0 },
+     textShadowRadius: 42,
+   },
++  caption: { marginTop: 2 },
+   pm: { marginTop: 8 },
+   advice: { marginTop: 12, maxWidth: 280, textAlign: 'center' },
+ });
+diff --git a/src/features/teraz/TerazScreen.tsx b/src/features/teraz/TerazScreen.tsx
+index 54dfc3f..04645d3 100644
+--- a/src/features/teraz/TerazScreen.tsx
++++ b/src/features/teraz/TerazScreen.tsx
+@@ -1,44 +1,76 @@
+ import { ScrollView, StyleSheet, View } from 'react-native';
+ import { scene } from '../../core/scene';
+-import { formatFreshness } from '../../core/air';
++import {
++  displayValue,
++  formatConcentration,
++  formatFreshness,
++  scaleLabel,
++} from '../../core/air';
+ import { Atmosphere } from '../../shared/ui/Atmosphere';
+ import { GradientBackground } from '../../shared/ui/GradientBackground';
+ import { HistoryChart } from '../../shared/ui/HistoryChart';
+ import { PollutantTiles } from '../../shared/ui/PollutantTiles';
+ import { colors, spacing } from '../../shared/tokens';
+ import { useActivePlace } from '../../shared/place';
++import { useSettings } from '../../shared/settings';
+ import { Hero } from './Hero';
+ 
+ export function TerazScreen() {
+   const { active, reading, detail } = useActivePlace();
++  const { settings } = useSettings();
+   if (!reading) {
+     return <View testID="teraz-loading" style={styles.loading} />;
+   }
+   const s = scene(reading.index);
+   const eyebrow = active.kind === 'location' ? 'TWOJA LOKALIZACJA' : 'MIEJSCE';
+   const place = {
+     city: reading.city,
+     station: reading.station,
+     freshness: formatFreshness(reading.measuredAt, new Date()),
+     index: reading.index,
+   };
++  const value = displayValue(
++    reading.index,
++    reading.pm25,
++    settings.scale,
++    settings.precision,
++  );
++  const pm25Label =
++    settings.scale === 'µg/m³'
++      ? null
++      : `PM2.5 · ${formatConcentration(
++          reading.pm25,
++          settings.precision,
++        )} µg/m³`;
++  const scaleCaption = scaleLabel(settings.scale);
+   return (
+     <GradientBackground scene={s}>
+       <Atmosphere scene={s} />
+       <ScrollView contentContainerStyle={styles.content}>
+-        <Hero scene={s} place={place} pm25={reading.pm25} eyebrow={eyebrow} />
++        <Hero
++          scene={s}
++          place={place}
++          value={value}
++          pm25Label={pm25Label}
++          scaleCaption={scaleCaption}
++          eyebrow={eyebrow}
++        />
+         {detail && (
+           <View style={styles.detail}>
+             <HistoryChart history={detail.history} />
+             <View style={styles.tiles}>
+-              <PollutantTiles pm10={detail.pm10} no2={detail.no2} />
++              <PollutantTiles
++                pm10={detail.pm10}
++                no2={detail.no2}
++                precision={settings.precision}
++              />
+             </View>
+           </View>
+         )}
+       </ScrollView>
+     </GradientBackground>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+   content: {
+diff --git a/src/features/teraz/__tests__/Hero.test.tsx b/src/features/teraz/__tests__/Hero.test.tsx
+index 2c816d1..d033fb7 100644
+--- a/src/features/teraz/__tests__/Hero.test.tsx
++++ b/src/features/teraz/__tests__/Hero.test.tsx
+@@ -8,94 +8,164 @@ const PLACE: Place = {
+   city: 'Kraków',
+   station: 'Aleja Krasińskiego · stacja GIOŚ',
+   freshness: '12 min temu',
+   index: 118,
+ };
+ const EYEBROW = 'TWOJA LOKALIZACJA';
+ 
+ describe('Hero', () => {
+   test('AC-2: location label + city', async () => {
+     const { getByText } = await render(
+-      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
++      <Hero
++        scene={s118}
++        place={PLACE}
++        value="118"
++        pm25Label="PM2.5 · 122 µg/m³"
++        scaleCaption=""
++        eyebrow={EYEBROW}
++      />,
+     );
+     expect(getByText('TWOJA LOKALIZACJA')).toBeTruthy();
+     expect(getByText('Kraków')).toBeTruthy();
+   });
+ 
+   test('AC-3: station + freshness line', async () => {
+     const { getByText } = await render(
+-      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
++      <Hero
++        scene={s118}
++        place={PLACE}
++        value="118"
++        pm25Label="PM2.5 · 122 µg/m³"
++        scaleCaption=""
++        eyebrow={EYEBROW}
++      />,
+     );
+     expect(
+       getByText('Aleja Krasińskiego · stacja GIOŚ · 12 min temu'),
+     ).toBeTruthy();
+   });
+ 
+   test('AC-4: index number rendered in key color', async () => {
+     const { getByText } = await render(
+-      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
++      <Hero
++        scene={s118}
++        place={PLACE}
++        value="118"
++        pm25Label="PM2.5 · 122 µg/m³"
++        scaleCaption=""
++        eyebrow={EYEBROW}
++      />,
+     );
+     expect(colorOf(getByText('118'))).toBe(s118.key);
+   });
+ 
+   test('AC-5: band name reads from scene, in key color', async () => {
+     const { getByText, rerender } = await render(
+-      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
++      <Hero
++        scene={s118}
++        place={PLACE}
++        value="118"
++        pm25Label="PM2.5 · 122 µg/m³"
++        scaleCaption=""
++        eyebrow={EYEBROW}
++      />,
+     );
+     expect(colorOf(getByText('Zły'))).toBe(s118.key);
+     await rerender(
+       <Hero
+         scene={scene(20)}
+         place={{ ...PLACE, index: 20 }}
++        value="20"
++        pm25Label="PM2.5 · 19 µg/m³"
++        scaleCaption=""
+         eyebrow={EYEBROW}
+       />,
+     );
+     expect(getByText('Bardzo dobry')).toBeTruthy();
+   });
+ 
+-  test('AC-6: pm2.5 line value from scene', async () => {
++  test('AC-6: pm2.5 line renders the passed pm25Label', async () => {
+     const { getByText } = await render(
+-      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
++      <Hero
++        scene={s118}
++        place={PLACE}
++        value="118"
++        pm25Label="PM2.5 · 122 µg/m³"
++        scaleCaption=""
++        eyebrow={EYEBROW}
++      />,
+     );
+     expect(getByText('PM2.5 · 122 µg/m³')).toBeTruthy();
+   });
+ 
+   test('AC-7: advice copy from scene', async () => {
+     const { getByText, rerender } = await render(
+-      <Hero scene={s118} place={PLACE} eyebrow={EYEBROW} />,
++      <Hero
++        scene={s118}
++        place={PLACE}
++        value="118"
++        pm25Label="PM2.5 · 122 µg/m³"
++        scaleCaption=""
++        eyebrow={EYEBROW}
++      />,
+     );
+     expect(
+       getByText('Zostań w domu. Zamknij okna, unikaj wysiłku.'),
+     ).toBeTruthy();
+     await rerender(
+       <Hero
+         scene={scene(20)}
+         place={{ ...PLACE, index: 20 }}
++        value="20"
++        pm25Label="PM2.5 · 19 µg/m³"
++        scaleCaption=""
+         eyebrow={EYEBROW}
+       />,
+     );
+     expect(
+       getByText('Powietrze czyste. Idealny czas na spacer i sport.'),
+     ).toBeTruthy();
+   });
+ 
+   test('AC-12: renders at clamped extremes without crashing', async () => {
+     const lo = await render(
+       <Hero
+         scene={scene(0)}
+         place={{ ...PLACE, index: 0 }}
++        value="0"
++        pm25Label="PM2.5 · 0 µg/m³"
++        scaleCaption=""
+         eyebrow={EYEBROW}
+       />,
+     );
+     expect(lo.getByText('0')).toBeTruthy();
+     expect(lo.getByText('Bardzo dobry')).toBeTruthy();
+     const hi = await render(
+       <Hero
+         scene={scene(200)}
+         place={{ ...PLACE, index: 200 }}
++        value="200"
++        pm25Label="PM2.5 · 500 µg/m³"
++        scaleCaption=""
+         eyebrow={EYEBROW}
+       />,
+     );
+     expect(hi.getByText('200')).toBeTruthy();
+     expect(hi.getByText('Bardzo zły')).toBeTruthy();
+   });
++
++  test('AC-5b: µg/m³ scale — number is the concentration, no PM2.5 sub-line, caption shown', async () => {
++    const { getByText, queryByText } = await render(
++      <Hero
++        scene={s118}
++        place={PLACE}
++        value="13.1"
++        pm25Label={null}
++        scaleCaption="µg/m³"
++        eyebrow="MIEJSCE"
++      />,
++    );
++    expect(getByText('13.1')).toBeTruthy();
++    expect(queryByText(/PM2.5 ·/)).toBeNull();
++    expect(getByText('µg/m³')).toBeTruthy();
++  });
+ });
+diff --git a/src/features/teraz/__tests__/TerazScreen.nearest.test.tsx b/src/features/teraz/__tests__/TerazScreen.nearest.test.tsx
+index db35541..1877756 100644
+--- a/src/features/teraz/__tests__/TerazScreen.nearest.test.tsx
++++ b/src/features/teraz/__tests__/TerazScreen.nearest.test.tsx
+@@ -5,23 +5,30 @@ import {
+   fireEvent,
+ } from '@testing-library/react-native';
+ import { Pressable, Text } from 'react-native';
+ import { TerazScreen } from '../TerazScreen';
+ import {
+   PlaceSourceProvider,
+   ActivePlaceProvider,
+   useActivePlace,
+   type SourceForPlace,
+ } from '../../../shared/place';
++import { SettingsProvider } from '../../../shared/settings';
++import { DEFAULT_SETTINGS, type SettingsStore } from '../../../core/settings';
+ import type { Reading } from '../../../core/air';
+ import type { Station } from '../../../core/geo';
+ 
++const settingsStore: SettingsStore = {
++  load: async () => DEFAULT_SETTINGS,
++  save: async () => {},
++};
++
+ const warsaw: Station = {
+   id: 530,
+   name: 'Warszawa, Al. Niepodległości',
+   city: 'Warszawa',
+   lat: 0,
+   lon: 0,
+ };
+ const rLoc: Reading = {
+   index: 4,
+   pm25: 5,
+@@ -47,24 +54,26 @@ function Picker() {
+       testID="pick-waw"
+       onPress={() => setActive({ kind: 'station', station: warsaw })}
+     >
+       <Text>pick</Text>
+     </Pressable>
+   );
+ }
+ 
+ test('AC 006-7: Teraz renders the active place + eyebrow (location → station)', async () => {
+   await render(
+-    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+-      <ActivePlaceProvider>
+-        <TerazScreen />
+-        <Picker />
+-      </ActivePlaceProvider>
+-    </PlaceSourceProvider>,
++    <SettingsProvider store={settingsStore}>
++      <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++        <ActivePlaceProvider>
++          <TerazScreen />
++          <Picker />
++        </ActivePlaceProvider>
++      </PlaceSourceProvider>
++    </SettingsProvider>,
+   );
+   expect(await screen.findByText('Kraków')).toBeTruthy();
+   expect(screen.getByText('TWOJA LOKALIZACJA')).toBeTruthy();
+   fireEvent.press(screen.getByTestId('pick-waw'));
+   await waitFor(() => expect(screen.getByText('Warszawa')).toBeTruthy());
+   expect(screen.getByText('42')).toBeTruthy();
+   expect(screen.getByText('MIEJSCE')).toBeTruthy();
+ });
+diff --git a/src/features/teraz/__tests__/TerazScreen.test.tsx b/src/features/teraz/__tests__/TerazScreen.test.tsx
+index 0d0dfcd..09bf193 100644
+--- a/src/features/teraz/__tests__/TerazScreen.test.tsx
++++ b/src/features/teraz/__tests__/TerazScreen.test.tsx
+@@ -1,42 +1,56 @@
+ import { render, screen, within } from '@testing-library/react-native';
+ import { TerazScreen } from '../TerazScreen';
++import { SettingsProvider } from '../../../shared/settings';
++import {
++  DEFAULT_SETTINGS,
++  type Settings,
++  type SettingsStore,
++} from '../../../core/settings';
+ import {
+   PlaceSourceProvider,
+   ActivePlaceProvider,
+ } from '../../../shared/place';
+ import type { AirQualitySource, ReadingDetail } from '../../../core/air';
++import { usAqiFromPm25 } from '../../../core/air';
+ import {
+   fakeAirSource,
+   pendingAirSource,
+ } from '../../../shared/test/fakeAirSource';
+ 
+ const detail: ReadingDetail = {
+   history: [
+     { at: 'a', pm25: 10, index: 10 },
+     { at: 'b', pm25: 20, index: 20 },
+   ],
+   pm10: 40,
+   no2: 22,
+ };
+ const detailedSource = (): AirQualitySource => ({
+   ...fakeAirSource(),
+   getDetail: async () => detail,
+ });
+ 
+-const wrap = (src: () => AirQualitySource) =>
++const settingsStore = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
++  load: async () => s,
++  save: async () => {},
++});
++
++const wrap = (src: () => AirQualitySource, s: Settings = DEFAULT_SETTINGS) =>
+   render(
+-    <PlaceSourceProvider sourceForPlace={src}>
+-      <ActivePlaceProvider>
+-        <TerazScreen />
+-      </ActivePlaceProvider>
+-    </PlaceSourceProvider>,
++    <SettingsProvider store={settingsStore(s)}>
++      <PlaceSourceProvider sourceForPlace={src}>
++        <ActivePlaceProvider>
++          <TerazScreen />
++        </ActivePlaceProvider>
++      </PlaceSourceProvider>
++    </SettingsProvider>,
+   );
+ 
+ test('spec-002 AC-8: renders the live reading — index, band, city, real pm25, atmosphere', async () => {
+   await wrap(() => fakeAirSource());
+   const gradient = await screen.findByTestId('gradient-background');
+   expect(within(gradient).getByText('118')).toBeTruthy();
+   expect(within(gradient).getByText('Zły')).toBeTruthy();
+   expect(within(gradient).getByText('Kraków')).toBeTruthy();
+   expect(within(gradient).getByText('PM2.5 · 122 µg/m³')).toBeTruthy();
+   expect(within(gradient).getByText('TWOJA LOKALIZACJA')).toBeTruthy();
+@@ -55,10 +69,32 @@ test('AC-10: with detail → chart + tiles render below the hero', async () => {
+   expect(await within(g).findByText('OSTATNIE 24 GODZINY')).toBeTruthy(); // chart
+   expect(within(g).getByText('PM10')).toBeTruthy(); // tiles
+   expect(within(g).getByText('NO₂')).toBeTruthy();
+ });
+ 
+ test('AC-10: without detail (getCurrentReading only) → hero, no chart/tiles', async () => {
+   await wrap(() => fakeAirSource());
+   await screen.findByText('118');
+   expect(screen.queryByText('OSTATNIE 24 GODZINY')).toBeNull();
+ });
++
++test('AC-5,5b: scale µg/m³ → hero number is the formatted concentration, no PM2.5 sub-line', async () => {
++  await wrap(() => fakeAirSource(), {
++    ...DEFAULT_SETTINGS,
++    scale: 'µg/m³',
++    precision: 'Dokładna',
++  });
++  const gradient = await screen.findByTestId('gradient-background');
++  expect(within(gradient).getByText('122.0')).toBeTruthy();
++  expect(within(gradient).queryByText(/PM2.5 ·/)).toBeNull();
++  expect(within(gradient).getByText('Zły')).toBeTruthy(); // color/band unaffected
++});
++
++test('AC-5,7: scale US AQI → hero number is usAqiFromPm25(pm25)', async () => {
++  await wrap(() => fakeAirSource(), {
++    ...DEFAULT_SETTINGS,
++    scale: 'US AQI',
++  });
++  const gradient = await screen.findByTestId('gradient-background');
++  expect(within(gradient).getByText(String(usAqiFromPm25(122)))).toBeTruthy();
++  expect(within(gradient).getByText('Zły')).toBeTruthy(); // band stays scene(reading.index)
++});
+diff --git a/src/shared/ui/PollutantTiles.tsx b/src/shared/ui/PollutantTiles.tsx
+index be8078f..0fc99bc 100644
+--- a/src/shared/ui/PollutantTiles.tsx
++++ b/src/shared/ui/PollutantTiles.tsx
+@@ -1,28 +1,48 @@
+ import { View, Text, StyleSheet } from 'react-native';
+ import { colors } from '../tokens';
++import type { Precision } from '../../core/settings';
++import { formatConcentration } from '../../core/air';
+ 
+-function Tile({ label, value }: { label: string; value: number | undefined }) {
++function Tile({
++  label,
++  value,
++  precision,
++}: {
++  label: string;
++  value: number | undefined;
++  precision: Precision;
++}) {
+   return (
+     <View style={styles.tile}>
+       <Text style={styles.label}>{label}</Text>
+-      <Text style={styles.value}>{value ?? '—'}</Text>
++      <Text style={styles.value}>
++        {value === undefined ? '—' : formatConcentration(value, precision)}
++      </Text>
+       <Text style={styles.unit}>µg/m³</Text>
+     </View>
+   );
+ }
+ 
+-export function PollutantTiles({ pm10, no2 }: { pm10?: number; no2?: number }) {
++export function PollutantTiles({
++  pm10,
++  no2,
++  precision,
++}: {
++  pm10?: number;
++  no2?: number;
++  precision: Precision;
++}) {
+   return (
+     <View style={styles.row}>
+-      <Tile label="PM10" value={pm10} />
+-      <Tile label="NO₂" value={no2} />
++      <Tile label="PM10" value={pm10} precision={precision} />
++      <Tile label="NO₂" value={no2} precision={precision} />
+     </View>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+   row: {
+     flexDirection: 'row',
+     gap: 12,
+   },
+   tile: {
+diff --git a/src/shared/ui/__tests__/PollutantTiles.test.tsx b/src/shared/ui/__tests__/PollutantTiles.test.tsx
+index 22f3938..8c0a531 100644
+--- a/src/shared/ui/__tests__/PollutantTiles.test.tsx
++++ b/src/shared/ui/__tests__/PollutantTiles.test.tsx
+@@ -1,16 +1,30 @@
+ import { render, screen } from '@testing-library/react-native';
+ import { PollutantTiles } from '../PollutantTiles';
+ 
+ test('AC-9: PM10 + NO₂ labels, values, µg/m³ units', async () => {
+-  await render(<PollutantTiles pm10={40} no2={22} />);
++  await render(<PollutantTiles pm10={40} no2={22} precision="Przybliżona" />);
+   expect(screen.getByText('PM10')).toBeTruthy();
+   expect(screen.getByText('NO₂')).toBeTruthy();
+   expect(screen.getByText('40')).toBeTruthy();
+   expect(screen.getByText('22')).toBeTruthy();
+   expect(screen.getAllByText('µg/m³')).toHaveLength(2);
+ });
+ 
+ test('AC-9: missing value → —', async () => {
+-  await render(<PollutantTiles pm10={40} no2={undefined} />);
++  await render(
++    <PollutantTiles pm10={40} no2={undefined} precision="Przybliżona" />,
++  );
+   expect(screen.getByText('—')).toBeTruthy();
+ });
++
++test('AC-7: precision Dokładna formats with one decimal', async () => {
++  await render(<PollutantTiles pm10={13.1} no2={22} precision="Dokładna" />);
++  expect(screen.getByText('13.1')).toBeTruthy();
++  expect(screen.getByText('22.0')).toBeTruthy();
++});
++
++test('AC-7: precision Przybliżona rounds to an integer', async () => {
++  await render(<PollutantTiles pm10={13.1} no2={22} precision="Przybliżona" />);
++  expect(screen.getByText('13')).toBeTruthy();
++  expect(screen.getByText('22')).toBeTruthy();
++});

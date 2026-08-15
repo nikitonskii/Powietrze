@@ -1,0 +1,255 @@
+### commits
+631b683 feat(shared): HistoryChart + PollutantTiles + glass tokens (AC-8..9, spec 012)
+
+### stat
+ src/shared/tokens/index.ts                      |  2 +
+ src/shared/ui/HistoryChart.tsx                  | 87 +++++++++++++++++++++++++
+ src/shared/ui/PollutantTiles.tsx                | 52 +++++++++++++++
+ src/shared/ui/__tests__/HistoryChart.test.tsx   | 37 +++++++++++
+ src/shared/ui/__tests__/PollutantTiles.test.tsx | 16 +++++
+ 5 files changed, 194 insertions(+)
+
+### diff
+diff --git a/src/shared/tokens/index.ts b/src/shared/tokens/index.ts
+index 757a133..2628ad8 100644
+--- a/src/shared/tokens/index.ts
++++ b/src/shared/tokens/index.ts
+@@ -13,20 +13,22 @@ export const colors = {
+     inactive: 'rgba(255,255,255,0.45)',
+     faint: 'rgba(255,255,255,0.4)',
+     footer: 'rgba(255,255,255,0.35)',
+     muted: 'rgba(255,255,255,0.55)',
+   },
+   tabBar: {
+     bg: 'rgba(10,12,17,0.55)',
+     border: 'rgba(255,255,255,0.08)',
+   },
+   card: 'rgba(255,255,255,0.06)',
++  glass: 'rgba(255,255,255,0.07)',
++  glassBorder: 'rgba(255,255,255,0.09)',
+   control: {
+     trackOff: 'rgba(255,255,255,0.18)',
+     segBg: 'rgba(255,255,255,0.08)',
+     segActive: 'rgba(255,255,255,0.16)',
+     divider: 'rgba(255,255,255,0.06)',
+   },
+ } as const;
+ 
+ export const type = {
+   index: { size: 128, weight: '600', letterSpacing: -3 },
+diff --git a/src/shared/ui/HistoryChart.tsx b/src/shared/ui/HistoryChart.tsx
+new file mode 100644
+index 0000000..593af7c
+--- /dev/null
++++ b/src/shared/ui/HistoryChart.tsx
+@@ -0,0 +1,87 @@
++import { View, Text, StyleSheet } from 'react-native';
++import { colors } from '../tokens';
++import { scene } from '../../core/scene';
++import {
++  historyBarOpacity,
++  barHeightPct,
++  type HourPoint,
++} from '../../core/air';
++
++const AXIS_LABELS = ['12:00', '18:00', '00:00', '06:00', 'teraz'];
++
++function Bar({
++  point,
++  index,
++  count,
++}: {
++  point: HourPoint;
++  index: number;
++  count: number;
++}) {
++  return (
++    <View
++      testID={`bar-${index}`}
++      style={{
++        flex: 1,
++        height: `${barHeightPct(point.index)}%`,
++        backgroundColor: scene(point.index).key,
++        opacity: historyBarOpacity(index, count),
++        borderRadius: 3,
++      }}
++    />
++  );
++}
++
++export function HistoryChart({ history }: { history: HourPoint[] }) {
++  return (
++    <View style={styles.card}>
++      <Text style={styles.header}>OSTATNIE 24 GODZINY</Text>
++      <View style={styles.bars}>
++        {history.map((point, i) => (
++          <Bar key={point.at} point={point} index={i} count={history.length} />
++        ))}
++      </View>
++      <View style={styles.axis}>
++        {AXIS_LABELS.map(label => (
++          <Text key={label} style={styles.axisLabel}>
++            {label}
++          </Text>
++        ))}
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  card: {
++    backgroundColor: colors.glass,
++    borderWidth: 1,
++    borderColor: colors.glassBorder,
++    borderRadius: 22,
++    paddingTop: 18,
++    paddingHorizontal: 18,
++    paddingBottom: 14,
++  },
++  header: {
++    color: colors.text.muted,
++    fontSize: 11,
++    fontWeight: '600',
++    letterSpacing: 1.4,
++  },
++  bars: {
++    flexDirection: 'row',
++    alignItems: 'flex-end',
++    gap: 3,
++    height: 76,
++    marginTop: 14,
++  },
++  axis: {
++    flexDirection: 'row',
++    justifyContent: 'space-between',
++    marginTop: 8,
++  },
++  axisLabel: {
++    color: colors.text.faint,
++    fontSize: 10,
++  },
++});
+diff --git a/src/shared/ui/PollutantTiles.tsx b/src/shared/ui/PollutantTiles.tsx
+new file mode 100644
+index 0000000..be8078f
+--- /dev/null
++++ b/src/shared/ui/PollutantTiles.tsx
+@@ -0,0 +1,52 @@
++import { View, Text, StyleSheet } from 'react-native';
++import { colors } from '../tokens';
++
++function Tile({ label, value }: { label: string; value: number | undefined }) {
++  return (
++    <View style={styles.tile}>
++      <Text style={styles.label}>{label}</Text>
++      <Text style={styles.value}>{value ?? '—'}</Text>
++      <Text style={styles.unit}>µg/m³</Text>
++    </View>
++  );
++}
++
++export function PollutantTiles({ pm10, no2 }: { pm10?: number; no2?: number }) {
++  return (
++    <View style={styles.row}>
++      <Tile label="PM10" value={pm10} />
++      <Tile label="NO₂" value={no2} />
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  row: {
++    flexDirection: 'row',
++    gap: 12,
++  },
++  tile: {
++    backgroundColor: colors.glass,
++    borderWidth: 1,
++    borderColor: colors.glassBorder,
++    borderRadius: 20,
++    padding: 16,
++    flex: 1,
++  },
++  label: {
++    color: colors.text.dim,
++    fontSize: 11,
++    fontWeight: '600',
++    letterSpacing: 1,
++  },
++  value: {
++    color: colors.text.primary,
++    fontSize: 30,
++    fontWeight: '600',
++    marginTop: 6,
++  },
++  unit: {
++    color: colors.text.inactive,
++    fontSize: 11,
++  },
++});
+diff --git a/src/shared/ui/__tests__/HistoryChart.test.tsx b/src/shared/ui/__tests__/HistoryChart.test.tsx
+new file mode 100644
+index 0000000..2340169
+--- /dev/null
++++ b/src/shared/ui/__tests__/HistoryChart.test.tsx
+@@ -0,0 +1,37 @@
++import { render, screen } from '@testing-library/react-native';
++import { StyleSheet } from 'react-native';
++import { HistoryChart } from '../HistoryChart';
++import { scene } from '../../../core/scene';
++import {
++  historyBarOpacity,
++  barHeightPct,
++  type HourPoint,
++} from '../../../core/air';
++
++const H: HourPoint[] = [
++  { at: 'a', pm25: 10, index: 10 },
++  { at: 'b', pm25: 200, index: 200 },
++];
++
++test('AC-8: header + axis labels + bar color/opacity/height', async () => {
++  await render(<HistoryChart history={H} />);
++  expect(screen.getByText('OSTATNIE 24 GODZINY')).toBeTruthy();
++  for (const l of ['12:00', '18:00', '00:00', '06:00', 'teraz']) {
++    expect(screen.getByText(l)).toBeTruthy();
++  }
++  const b0 = StyleSheet.flatten(screen.getByTestId('bar-0').props.style);
++  expect(b0.backgroundColor).toBe(scene(10).key);
++  expect(b0.opacity).toBe(historyBarOpacity(0, 2));
++  expect(b0.height).toBe(`${barHeightPct(10)}%`);
++  const b1 = StyleSheet.flatten(screen.getByTestId('bar-1').props.style);
++  expect(b1.backgroundColor).toBe(scene(200).key);
++  expect(b1.opacity).toBe(1);
++  expect(b1.height).toBe('100%');
++});
++
++test('AC-8: single-point history → opacity 1 (no NaN)', async () => {
++  await render(<HistoryChart history={[{ at: 'x', pm25: 5, index: 5 }]} />);
++  expect(
++    StyleSheet.flatten(screen.getByTestId('bar-0').props.style).opacity,
++  ).toBe(1);
++});
+diff --git a/src/shared/ui/__tests__/PollutantTiles.test.tsx b/src/shared/ui/__tests__/PollutantTiles.test.tsx
+new file mode 100644
+index 0000000..22f3938
+--- /dev/null
++++ b/src/shared/ui/__tests__/PollutantTiles.test.tsx
+@@ -0,0 +1,16 @@
++import { render, screen } from '@testing-library/react-native';
++import { PollutantTiles } from '../PollutantTiles';
++
++test('AC-9: PM10 + NO₂ labels, values, µg/m³ units', async () => {
++  await render(<PollutantTiles pm10={40} no2={22} />);
++  expect(screen.getByText('PM10')).toBeTruthy();
++  expect(screen.getByText('NO₂')).toBeTruthy();
++  expect(screen.getByText('40')).toBeTruthy();
++  expect(screen.getByText('22')).toBeTruthy();
++  expect(screen.getAllByText('µg/m³')).toHaveLength(2);
++});
++
++test('AC-9: missing value → —', async () => {
++  await render(<PollutantTiles pm10={40} no2={undefined} />);
++  expect(screen.getByText('—')).toBeTruthy();
++});

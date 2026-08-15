@@ -1,0 +1,1544 @@
+### commits (branch off feature/m-notifications @ f6a68e7)
+16c1746 docs(pollutant-tiles): journal 16 + spec status + live AC-6 evidence
+da83510 feat(teraz): data-driven pollutant tiles — CO/C₆H₆/O₃/SO₂ where measured (AC-3..5)
+d91de48 feat(core): pollutant catalog + formatPollutant (AC-1, AC-2)
+4d02288 docs: implementation plan for m-pollutant-tiles
+a041b26 docs: spec 016 data-driven pollutant tiles (critic SHIP-WITH-FIXES folded)
+
+### stat
+ .../2026-08-15-m-pollutant-tiles/task-1-report.md  |  67 ++++++++
+ .../2026-08-15-m-pollutant-tiles/task-2-report.md  | 108 ++++++++++++
+ docs/harness/16-pollutant-tiles.md                 |  69 ++++++++
+ docs/harness/evidence/16/01-krakow-2x2-tiles.png   | Bin 0 -> 1813904 bytes
+ docs/specs/016-pollutant-tiles.md                  | 183 +++++++++++++++++++++
+ .../plans/2026-08-15-m-pollutant-tiles.md          |  65 ++++++++
+ src/core/air/__tests__/pollutants.test.ts          |  12 ++
+ src/core/air/__tests__/scale.test.ts               |  22 +++
+ src/core/air/history.ts                            |   7 +-
+ src/core/air/index.ts                              |  11 ++
+ src/core/air/pollutants.ts                         |  26 +++
+ src/data/gios/__fixtures__/getData_c6h6.json       |  19 +++
+ src/data/gios/__fixtures__/getData_co.json         |  19 +++
+ src/data/gios/__fixtures__/getData_o3.json         |  19 +++
+ src/data/gios/__fixtures__/getData_so2.json        |  19 +++
+ src/data/gios/__fixtures__/sensors_all6.json       |  99 +++++++++++
+ src/data/gios/__tests__/detail.test.ts             | 114 +++++++++++--
+ src/data/gios/source.ts                            |  68 ++++++--
+ src/features/teraz/TerazScreen.tsx                 |   3 +-
+ src/features/teraz/__tests__/TerazScreen.test.tsx  |   6 +-
+ src/shared/place/__tests__/usePlaceDetail.test.tsx |   6 +-
+ src/shared/ui/PollutantTiles.tsx                   |  42 +++--
+ src/shared/ui/__tests__/PollutantTiles.test.tsx    |  52 ++++--
+ 23 files changed, 967 insertions(+), 69 deletions(-)
+
+### diff
+diff --git a/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-1-report.md b/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-1-report.md
+new file mode 100644
+index 0000000..eedb119
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-1-report.md
+@@ -0,0 +1,67 @@
++# Task 1 report — Core catalog + small-magnitude formatter
++
++Spec: `docs/specs/016-pollutant-tiles.md` · Plan: `docs/superpowers/plans/2026-08-15-m-pollutant-tiles.md` (Task 1)
++
++## What was added
++
++1. **`src/core/air/pollutants.ts`** (new file, 25 lines) — additive, `ReadingDetail` untouched.
++   - `PollutantCode = 'PM10' | 'NO2' | 'O3' | 'SO2' | 'CO' | 'C6H6'`
++   - `PollutantSpec { code: PollutantCode; label: string }`
++   - `POLLUTANTS: readonly PollutantSpec[]` — the exact 6-entry literal from spec
++     §Core, in order, with real subscript glyphs (NO₂/O₃/SO₂/C₆H₆).
++   - `PollutantReading { code: PollutantCode; value: number }` — no `label` field,
++     per spec (UI derives labels from `POLLUTANTS` later, in Task 2).
++
++2. **`src/core/air/index.ts`** — two additions:
++   - `export * from './pollutants';` (re-export, alongside the existing
++     `export * from './history';`)
++   - `formatPollutant(value: number, precision: Precision): string` — clean
++     delegation: `0 < value < 1` → `value.toFixed(2)`; else
++     `formatConcentration(value, precision)` (which already returns `'—'` for
++     non-finite and handles negatives/≥1 unchanged). No duplicated logic.
++
++3. **Tests** (TDD — written first, confirmed red, then implementation made them green):
++   - `src/core/air/__tests__/pollutants.test.ts` (new)
++     - `test('AC-1: POLLUTANTS pins the six-entry catalog, codes+labels+order', ...)`
++   - `src/core/air/__tests__/scale.test.ts` (extended — this file already hosts
++     `formatConcentration` tests, so `formatPollutant` was added here per the
++     plan's "extend the existing format test file" instruction; named with the
++     spec-016 AC ID since the file's own local `AC-2` label refers to a
++     different spec's numbering)
++     - `test('AC-2 (spec 016): formatPollutant — sub-1 always 2dp, else formatConcentration', ...)`
++       covers: `(0.35,'Przybliżona')==='0.35'`, `(0.35,'Dokładna')==='0.35'`,
++       `(0.999,'Przybliżona')==='1.00'`, `(0,'Przybliżona')==='0'`,
++       `(0,'Dokładna')` equals `formatConcentration(0,'Dokładna')`,
++       `(-0.35,'Przybliżona')` and `(-4.2,'Dokładna')` equal their
++       `formatConcentration` counterparts (pinned via direct comparison, not a
++       hardcoded literal, so the test documents "same path" rather than
++       duplicating formatConcentration's own math), `(333,'Przybliżona')==='333'`,
++       `(13.1,'Dokładna')==='13.1'`, `(13.1,'Przybliżona')==='13'`,
++       `(NaN,'Przybliżona')==='—'`, `(Infinity,'Dokładna')==='—'`.
++
++## Files touched
++- `src/core/air/pollutants.ts` (new)
++- `src/core/air/index.ts` (modified — 2 additions, `formatConcentration` untouched)
++- `src/core/air/__tests__/pollutants.test.ts` (new)
++- `src/core/air/__tests__/scale.test.ts` (modified — import + 1 new test)
++
++`ReadingDetail` in `src/core/air/history.ts` was **not touched** (Task 2 scope).
++
++## Gate results
++- `npm run typecheck` → clean, no errors.
++- `npm run lint` → 0 errors, 4 pre-existing warnings (App.tsx, mappers.ts,
++  HistoryChart.tsx, Toggle.tsx) — none in files touched by this task.
++- `npm test` → 55 suites / 195 tests, all passed.
++- Coverage (`--coverage` run, scoped to `src/core`): `src/core/air` at 100%
++  statements/branches/functions/lines (pollutants.ts, index.ts, history.ts all
++  100%). No "coverage threshold not met" error. (One pre-existing unrelated
++  0/0 file, `src/core/scene/index.ts`, is an empty barrel — not part of this
++  task and doesn't trip the aggregate `./src/core/` threshold.)
++
++## Deviations from plan
++None. Followed the plan's file layout choice (new `pollutants.ts` file rather
++than extending `history.ts`) and test-file placement (new file for AC-1,
++extending `scale.test.ts` for AC-2/formatPollutant) exactly as suggested.
++
++## Commit
++`feat(core): pollutant catalog + formatPollutant (AC-1, AC-2)`
+diff --git a/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-2-report.md b/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-2-report.md
+new file mode 100644
+index 0000000..e195ab9
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-15-m-pollutant-tiles/task-2-report.md
+@@ -0,0 +1,108 @@
++# Task 2 report — ReadingDetail migration (data adapter + data-driven tiles)
++
++Branch: `feature/m-pollutant-tiles`. Worktree: `.claude/worktrees/m-loc-nearest`.
++
++## Files modified
++
++- `src/core/air/history.ts` — `ReadingDetail` changed to
++  `{ history: HourPoint[]; pollutants: PollutantReading[] }`; `pm10?`/`no2?`
++  removed. Imports `PollutantReading` from `./pollutants`.
++- `src/data/gios/source.ts` —
++  - added `getLatest(id, fetchImpl)` (module-level helper, extracted from the
++    old `detailFor` closure so `resolvePollutants` can reuse it).
++  - added `resolvePollutants(sensorsJson, fetchImpl): Promise<PollutantReading[]>`
++    — maps `POLLUTANTS`, `findSensorId` per code, `getLatest` for present ids,
++    `Promise.allSettled`, keeps only `Number.isFinite(value)` results, order
++    preserved (allSettled preserves input-array order regardless of timing).
++  - `detailFor` rewritten as a thin composition: one `Promise.allSettled([getSeries(pm25Id), resolvePollutants(...)])`,
++    each side independently falls back to `[]` on rejection. 28 lines.
++  - `mappers.ts` untouched, per spec.
++- `src/shared/ui/PollutantTiles.tsx` — props now
++  `{ pollutants: PollutantReading[]; precision }`; `Tile` derives its label
++  via `POLLUTANTS.find(p => p.code === code)!.label`, value via
++  `formatPollutant`; wrapping grid (`flexWrap: 'wrap'`, tile
++  `flexBasis: '48%'`, no `flex: 1` so a lone last tile doesn't stretch,
++  existing 12px gap kept); empty list → `return null`.
++- `src/features/teraz/TerazScreen.tsx` — `pm10={detail.pm10} no2={detail.no2}`
++  → `pollutants={detail.pollutants}`.
++
++## Fixtures created (`src/data/gios/__fixtures__/`, matching existing shape)
++
++- `getData_co.json` — newest-non-null CO series, latest value `350`.
++- `getData_c6h6.json` — newest-non-null C₆H₆ series, latest value `0.35`
++  (chosen to also exercise the sub-1 `formatPollutant` rule in AC-4).
++- `getData_o3.json` — newest-non-null O₃ series, latest value `45`.
++- `getData_so2.json` — newest-non-null SO₂ series, latest value `8.5`.
++- `sensors_all6.json` — station-400-shaped sensors list exposing all six
++  catalog codes (PM10 2750, NO2 2747, O3 2749, SO2 2751, CO 2745, C6H6 16500,
++  PM2.5 2752) for AC-3b.
++- Reused `getData_allnull.json` for AC-3c (present sensor, all-null series).
++- `sensors400.json` (pre-existing, unmodified) already has PM10+NO2+CO+C6H6
++  but no O3/SO2 — used directly for AC-3a, matching the spec's Kraków-400
++  scenario with zero new fixture needed for that station shape.
++
++## Tests written/updated (AC IDs cited)
++
++- `src/data/gios/__tests__/detail.test.ts` — fully rewritten:
++  - AC-3a: PM10+NO2+CO+C6H6 station → `pollutants` exactly `[PM10,NO2,CO,C6H6]`
++    in order + values; plus a missing-NO2-sensor variant (NO2 omitted, others
++    in order).
++  - AC-3b: all-six station → `[PM10,NO2,O3,SO2,CO,C6H6]` catalog order.
++  - AC-3c: CO sensor present, getData all-null → CO omitted, others present.
++  - Failure-isolation regressions carried forward (rejected NO2 fetch →
++    omitted; rejected PM2.5 fetch → `history: []`, pollutants unaffected).
++  - Nearest-source fallback tests (AC-6c) updated to assert `pollutants`
++    arrays instead of `pm10`/`no2`.
++- `src/shared/ui/__tests__/PollutantTiles.test.tsx` — fully rewritten:
++  AC-4 (4-entry catalog labels + `formatPollutant` values + four `µg/m³`,
++  benzene `0.35` → `'0.35'` in `Przybliżona`, ≥1 precision cases for
++  Dokładna/Przybliżona), "absent pollutant → tile not rendered" (replaces the
++  old "missing value → —" case), AC-5 (empty list → nothing renders,
++  `queryByText('µg/m³')` null, no crash).
++- `src/shared/place/__tests__/usePlaceDetail.test.tsx` — `detail` fixture
++  changed from `{ pm10: 30, no2: 22 }` to
++  `pollutants: [{code:'PM10',value:30},{code:'NO2',value:22}]`.
++- `src/features/teraz/__tests__/TerazScreen.test.tsx` — same fixture change;
++  AC-10 assertions (`PM10`/`NO₂` labels visible) needed no change since the
++  label text itself is unchanged.
++- `src/data/gios/__tests__/source.test.ts`, `stationSource.test.ts`,
++  `nearestSource.test.ts`, `ActivePlaceContext.test.tsx` — inspected, no
++  `pm10`/`no2`/`ReadingDetail` literals present; no changes needed.
++
++## Completion guard (spec §"Completion guard", B1)
++
++```
++grep -rnE 'detail\.(pm10|no2)|(pm10|no2)\?:|(pm10|no2)=\{' src --include='*.ts' --include='*.tsx' | grep -v 'src/core/scene'
++```
++Result: **empty** (confirmed via exit code, no matches).
++
++## Gate results
++
++- `npm run typecheck` → clean, 0 errors.
++- `npm run lint` → 0 errors, 4 warnings, all pre-existing (App.tsx/HistoryChart.tsx/Toggle.tsx
++  inline-style warnings + the long-standing `mappers.ts` "rule disabled but
++  never reported" quirk for `no-explicit-any`, which isn't actually an
++  enabled rule in this ESLint config — my `resolvePollutants` uses a plain
++  justifying comment instead of an `eslint-disable` directive to avoid adding
++  a duplicate instance of that same warning).
++- `npm test` → 55 suites / 198 tests, all passing.
++- `npx jest --coverage` (coverage dir redirected to scratch since the
++  sandboxed worktree's `coverage/` isn't writable) → `src/core` at 100%
++  statements/branches/functions/lines across every file (`core/air`,
++  `core/air/history.ts`, `core/air/pollutants.ts` all 100%); exit code 0, no
++  "coverage threshold not met" failure.
++
++## Deviations / concerns
++
++- None from the spec's design. One implementation note: `resolvePollutants`
++  maps an absent-value fulfillment to `{ code, value: NaN }` internally so a
++  single `Number.isFinite` check in the post-filter covers both "sensor
++  absent → allSettled rejection" and "sensor present but all-null →
++  `parseLatestValue` returns `undefined`" uniformly; this matches the spec's
++  explicit warning that the finite check (not `status === 'fulfilled'`) is
++  what does the filtering.
++- Fixture station IDs for `sensors_all6.json` (O3=2749, SO2=2751) are
++  invented (not verified against a real live GIOŚ station that measures all
++  six) since none of Kraków's real sensors expose all six simultaneously —
++  the spec's AC-3b only requires proving the ordering/composition logic, not
++  a specific real station, so this is a synthetic fixture by design.
+diff --git a/docs/harness/16-pollutant-tiles.md b/docs/harness/16-pollutant-tiles.md
+new file mode 100644
+index 0000000..23bb171
+--- /dev/null
++++ b/docs/harness/16-pollutant-tiles.md
+@@ -0,0 +1,69 @@
++# Journal 16 — M-pollutant-tiles (data-driven Teraz-detail tiles)
++
++**Spec:** `docs/specs/016-pollutant-tiles.md` (AC-1..6) · **Plan:** `docs/superpowers/plans/2026-08-15-m-pollutant-tiles.md`
++**Branch:** `feature/m-pollutant-tiles` (off `feature/m-notifications`/PR #14; chain #3→…→#14 precede) · **Built:** 2026-08-15, subagent-driven (2 tasks, per-task review each). **No new dependency.**
++
++## What shipped
++The Teraz detail showed two hard-coded tiles (PM10 + NO₂). It now renders **one
++tile per pollutant the resolved station actually measures**, from a fixed core
++catalog, in a stable order, as a wrapping 2-column grid. Kraków/Al. Krasińskiego
++(station 400) shows a **2×2 grid: PM10, NO₂, CO, C₆H₆** — verified live on the sim
++(PM10 13, NO₂ 29, CO 239, benzene **0.20** µg/m³). Stations that measure O₃/SO₂
++show those automatically, with zero station-specific code.
++
++## Why data-driven (not a fixed set)
++Checking the **live** API first was decisive: station 400 has **no O₃ and no SO₂
++sensors** — it measures PM10, NO₂, CO, NO, NOₓ, PM2.5, C₆H₆. The original
++"O₃/CO/SO₂" idea would have rendered permanently-empty O₃/SO₂ tiles. And because
++geolocation resolves *arbitrary* stations (the nearest-station source is live), a
++hard-coded set is wrong elsewhere too. Data-driven is the only correct design.
++**Human sign-off obtained to supersede `design/README.md:80`** (fixed 2-tile grid);
++`design/` is a read-only source of truth, so the deviation is recorded in the spec.
++
++## Design decisions (from the critique — SHIP-WITH-FIXES, B1/B2 + S1–S8 folded)
++- **Catalog single-sources code + label + order** in `core/air` `POLLUTANTS`; the
++  `PollutantReading` carries only `{code, value}` — the UI derives the label from
++  the catalog (S6: one home for label truth). Core codes equal GIOŚ codes, so the
++  data layer passes them verbatim to `findSensorId` — no translation seam (S7).
++- **`formatPollutant`** keeps 2 decimals for `0 < value < 1` (benzene 0.20 would
++  otherwise round to "0"), else defers to `formatConcentration` — a clean
++  delegation, not a fork. Negatives take the formatConcentration path (not special-cased).
++- **Finite filter, not `status==='fulfilled'`** (S3/critic core point): an all-null
++  sensor makes `parseLatestValue` return `undefined`, which settles *fulfilled* — so
++  `resolvePollutants` keeps a result only when `Number.isFinite(value)`. Order is
++  preserved because `Promise.allSettled` returns input-array order.
++- **No "—" tiles:** a truly-absent sensor is simply not rendered; a lone last tile
++  (odd count) stays 48% width, not stretched. Accepted consequence (S8): a station
++  whose sensor flickers null hour-to-hour reflows between N and N−1 tiles.
++- **B2 coverage:** AC-3b pins the full 6-pollutant ordered path (O₃/SO₂ present) via
++  a synthetic all-six fixture — the feature's core claim is no longer untested.
++
++## Process notes
++- **Live-API-first paid off again** (like M-loc findAll, teraz-detail station
++  consistency): the feature's whole shape changed once the real sensor list was
++  checked. Verify data availability before designing tiles around it.
++- **Two tasks:** Task 1 (additive core: catalog + `formatPollutant`) is green on its
++  own; Task 2 is the atomic `ReadingDetail` shape migration (adapter + UI + feature +
++  4 test suites) — splitting it would leave the tree non-compiling mid-way.
++- **B1 (critic):** the naive completion grep (`\.pm10|\.no2`) collides with the
++  unrelated `src/core/scene` atmosphere fields — scoped the guard to `ReadingDetail`
++  usages and excluded `core/scene`. Guard ran empty at completion.
++- **Reusable gotcha:** a discontinuous change to a shared type (`ReadingDetail`) is
++  an atomic migration; and when a completion-grep guard is part of the plan, scope it
++  or it snags unrelated same-named fields.
++
++## AC coverage
++Gate: 55 suites / 198 tests · lint 0 errors · typecheck clean · `src/core` 100%.
++- **AC-1** (POLLUTANTS catalog literal) ✓ · **AC-2** (`formatPollutant` table incl. sub-1, negatives, non-finite) ✓ (core).
++- **AC-3a** (PM10/NO₂/CO/C₆H₆ → ordered) ✓ · **AC-3b** (all six → catalog order) ✓ · **AC-3c** (present-but-all-null → omitted) ✓ (adapter, fetch mocked).
++- **AC-4** (tiles: catalog labels, `formatPollutant` values, four µg/m³, benzene 0.35→"0.35") ✓ · **AC-5** (empty → renders nothing) ✓.
++- **AC-6 (manual)** ✓ — live 2×2 Kraków grid, benzene "0.20" confirming sub-1 formatting → `docs/harness/evidence/16/01`.
++
++## Deferred (non-blocking)
++- Per-pollutant 24h history/sparklines; per-pollutant CAQI sub-indices/coloring (non-goals).
++- **Minor (final-review roll-up):** `detail.test.ts` failure-isolation `describe` is
++  labeled `AC-3` (no such bare ID in spec 016 — it's a carried-forward regression, not
++  the AC-3a/b/c coverage); `getData_allnull.json` reused for AC-3c is an empty array
++  rather than all-null entries (behaviorally identical; spec-sanctioned).
++- Sim LogBox "Open debugger to view warnings" present (pre-existing, also on the
++  @notifee build) — not introduced here; device console not readable from the harness.
+diff --git a/docs/harness/evidence/16/01-krakow-2x2-tiles.png b/docs/harness/evidence/16/01-krakow-2x2-tiles.png
+new file mode 100644
+index 0000000..b1e5b96
+Binary files /dev/null and b/docs/harness/evidence/16/01-krakow-2x2-tiles.png differ
+diff --git a/docs/specs/016-pollutant-tiles.md b/docs/specs/016-pollutant-tiles.md
+new file mode 100644
+index 0000000..40b8a50
+--- /dev/null
++++ b/docs/specs/016-pollutant-tiles.md
+@@ -0,0 +1,183 @@
++# Spec 016: Data-driven pollutant tiles (O₃/SO₂/CO/C₆H₆ where measured)
++
++**Status:** implemented (AC-1..5 automated; AC-6 verified live on sim) · Journal: `docs/harness/16-pollutant-tiles.md`
++**Milestone:** M-pollutant-tiles · **No new dependency** (Skia/on-board only rule holds)
++**Sources:** `design/README.md` (Teraz detail: pollutant tiles under the 24h chart); live GIOŚ v1 API (`station/sensors/{id}`, `data/getData/{sensorId}`)
++**Critic:** SHIP-WITH-FIXES — B1/B2 + S1–S8 folded in (see `.superpowers/sdd/critic-016.md`).
++
++## Problem
++The Teraz detail shows exactly two hard-coded tiles — **PM10** and **NO₂**. But
++the resolved station (Kraków default *or* whatever geolocation picks) measures a
++different set of pollutants. Kraków/Al. Krasińskiego (station 400) measures
++**PM10, NO₂, CO, C₆H₆** — but **not O₃ and not SO₂**. Other stations measure O₃
++and/or SO₂ but not CO. Hard-coding any fixed set therefore either hides real data
++or would render permanently-empty tiles.
++
++## Scope
++Make the tiles **data-driven**: render one tile per pollutant the resolved
++station actually reports a current value for, from a fixed catalog, in a stable
++priority order, laid out as a wrapping 2-column grid. Adds CO + C₆H₆ (and O₃/SO₂
++wherever a station has them) with zero station-specific code.
++
++**Supersedes `design/README.md:80`** (which mandates a fixed 2-tile PM10+NO₂
++grid). `design/` is read-only (constitution), so this deviation is recorded here
++and **needs human sign-off** at spec review. The tile *visuals* (glass, 1fr/1fr,
++12px gap, fonts) are kept exactly; only the *set* becomes data-driven. (S1)
++
++## Non-goals
++- **Per-pollutant 24h history / sparklines** — the chart stays PM2.5-only. Tiles
++  show the latest value only (deferred; would multiply fetches and redesign the chart).
++- **Per-pollutant CAQI sub-indices / coloring** — tiles are neutral (glass), like
++  today. The one CAQI value still drives the scene. No per-pollutant band math.
++- **Unit conversion** — GIOŚ reports all six in µg/m³; the tile unit stays µg/m³.
++
++## Design
++
++### Core — pollutant catalog + model (`src/core/air`)
++```ts
++export type PollutantCode = 'PM10' | 'NO2' | 'O3' | 'SO2' | 'CO' | 'C6H6';
++export interface PollutantSpec { code: PollutantCode; label: string }
++
++// SINGLE SOURCE OF TRUTH for which pollutants can appear, their display label,
++// and the stable render order. `code` is the canonical air-quality formula; it
++// EQUALS the GIOŚ sensor code so the data layer passes it verbatim to
++// findSensorId — no translation layer exists or is needed. (S7)
++export const POLLUTANTS: readonly PollutantSpec[] = [
++  { code: 'PM10', label: 'PM10' },
++  { code: 'NO2',  label: 'NO₂' },
++  { code: 'O3',   label: 'O₃' },
++  { code: 'SO2',  label: 'SO₂' },
++  { code: 'CO',   label: 'CO' },
++  { code: 'C6H6', label: 'C₆H₆' },
++];
++
++// One measured pollutant with its latest value (µg/m³). `label` is NOT stored
++// here — the UI derives it from POLLUTANTS by `code` (one home for label truth). (S6)
++export interface PollutantReading { code: PollutantCode; value: number }
++
++// ReadingDetail: history stays PM2.5-only; the two fixed fields are REPLACED by a
++// catalog-ordered list (empty if none resolved).
++export interface ReadingDetail { history: HourPoint[]; pollutants: PollutantReading[] }
++```
++
++### Core — small-magnitude formatting (`src/core/air`)
++Benzene runs ~0.3 µg/m³; in "Przybliżona" (rounded) mode `formatConcentration`
++renders it "0" — misleading. Add:
++```ts
++// Tile formatting. For 0 < value < 1, ALWAYS 2 decimals (e.g. "0.35") so a real
++// sub-unit reading is never rounded away to "0". Otherwise defer to
++// formatConcentration(value, precision) — so value ≥ 1 keeps today's behavior
++// EXACTLY, and negatives (rare GIOŚ artifacts) take the same path as
++// formatConcentration (NOT special-cased). value === 0 → "0". Non-finite → "—".
++export function formatPollutant(value: number, precision: Precision): string;
++```
++`formatConcentration` is unchanged (hero µg/m³ number + PlaceRow keep using it);
++`formatPollutant` is a clean delegation, not a fork of it.
++
++### Data — resolve the catalog (`src/data/gios`)
++Add a focused helper so `detailFor` stays a thin composition within the 40-line /
++one-responsibility limits (S4):
++```ts
++// Resolves every catalog pollutant the station reports a finite latest value for,
++// preserving POLLUTANTS order. Absent sensor → skipped (no fetch). All fetches via
++// Promise.allSettled; a settled result is KEPT only if Number.isFinite(value) —
++// note parseLatestValue returns `undefined` for an all-null sensor, which settles
++// FULFILLED (not rejected), so the finite check (not just status==='fulfilled') is
++// what filters it out. (S3)
++async function resolvePollutants(sensorsJson, fetchImpl): Promise<PollutantReading[]>;
++```
++`detailFor` then = resolve sensors once → `history` from PM2.5 (as today) +
++`pollutants: await resolvePollutants(sensors, fetchImpl)`. `mappers.ts` needs no
++change (`findSensorId`/`parseLatestValue` already code-generic).
++
++### Shared UI — data-driven grid (`src/shared/ui/PollutantTiles.tsx`)
++```ts
++export function PollutantTiles(props: { pollutants: PollutantReading[]; precision: Precision }): JSX.Element | null;
++```
++- One `Tile` per entry: label via `POLLUTANTS.find(p => p.code === code)!.label`
++  (shared→core import is allowed), value via `formatPollutant(value, precision)`,
++  unit "µg/m³".
++- **Wrapping 2-column grid** (`flexWrap: 'wrap'`, each tile `flexBasis` ≈ 48% with
++  the existing 12px gap) so 2/4/6 tiles lay out cleanly. **A ragged last row
++  (3 or 5 tiles) leaves a lone 48%-width tile — kept at 48% (consistent sizing),
++  NOT stretched to full width.** (Q3)
++- Empty list → `return null` (no crash, no stray unit). No "—" tiles: an absent
++  pollutant is simply not shown. **Accepted consequence (S8):** a station whose
++  sensor flickers null hour-to-hour will reflow between N and N−1 tiles; this is
++  intended (a truly-absent sensor must not render "—").
++
++### Feature wiring (`src/features/teraz/TerazScreen.tsx`)
++Replace `pm10={detail.pm10} no2={detail.no2}` with `pollutants={detail.pollutants}`.
++
++## Behavior — Acceptance Criteria
++
++### Core (pure)
++- **AC-1** — `POLLUTANTS` equals the six specs above in that exact order with those
++  exact labels (pin the array literal, incl. the `NO₂/O₃/SO₂/C₆H₆` subscript glyphs).
++- **AC-2** — `formatPollutant` table:
++  - `(0.35,'Przybliżona') === '0.35'` and `(0.35,'Dokładna') === '0.35'` (sub-1 always 2 dp)
++  - `(0.999,'Przybliżona') === '1.00'` (still sub-1 → 2 dp; documents the boundary)
++  - `(0) === '0'`
++  - `(-0.35,'Przybliżona')` and `(-4.2,'Dokładna')` take the `formatConcentration`
++    path (negatives NOT special-cased — pin whatever formatConcentration yields)
++  - `(333,'Przybliżona') === '333'`; `(13.1,'Dokładna') === '13.1'`;
++    `(13.1,'Przybliżona') === '13'` (≥1 defers to `formatConcentration`)
++  - non-finite (`NaN`, `Infinity`) → `'—'`
++
++### Data (adapter, fetch mocked)
++- **AC-3a** — `detailFor` against a mocked station with sensors **PM10+NO₂+CO+C₆H₆
++  (no O₃/SO₂)**, each getData returning a newest-non-null value: `pollutants` is
++  exactly `[{PM10}, {NO2}, {CO}, {C6H6}]` **in that order** with the right values;
++  O₃/SO₂ absent. `history` still built from PM2.5.
++- **AC-3b (B2)** — `detailFor` against a mocked station exposing **all six**
++  (PM10+NO₂+O₃+SO₂+CO+C₆H₆): `pollutants` equals the six in **catalog order**
++  `[PM10,NO2,O3,SO2,CO,C6H6]` with correct values — proves the O₃/SO₂ path.
++- **AC-3c** — a sensor present but whose getData is **all-null** → that pollutant
++  is **omitted** (finite filter, not merely settled).
++
++### UI
++- **AC-4** — `PollutantTiles` with a 4-entry list renders all four labels (derived
++  from POLLUTANTS), each value via `formatPollutant`, and four "µg/m³" units;
++  benzene `0.35` shows "0.35" even in `Przybliżona`. The existing precision cases
++  still hold for ≥1 values (13.1→"13"/"13.1").
++- **AC-5** — empty `pollutants` → component renders nothing (`queryByText('µg/m³')`
++  is null; no crash).
++
++### Manual
++- **AC-6** — *(journal)* On the sim (Kraków default): the detail shows **four**
++  tiles — PM10, NO₂, CO, C₆H₆ — with live values (CO in the hundreds, benzene a
++  small decimal like "0.35"), as a 2×2 grid under the 24h chart. Screenshot → evidence/16.
++
++## Existing tests to update (learned from spec 014 B2)
++Changing `ReadingDetail` from `pm10?/no2?` to `pollutants[]` reds several suites —
++update them in the same change:
++- `src/shared/ui/__tests__/PollutantTiles.test.tsx` — new prop shape + label-from-
++  catalog + grid; the old "missing value → —" case becomes "absent pollutant → tile
++  not rendered".
++- `src/data/gios/__tests__/*` — `detailFor`/source tests asserting `pm10`/`no2`.
++- `src/shared/place/__tests__/*` — any `usePlaceDetail`/`ActivePlaceContext`
++  fixtures building a `ReadingDetail` with `pm10`/`no2`.
++- `src/features/teraz/__tests__/*` — any `TerazScreen` fixture with `pm10`/`no2`.
++
++**Completion guard (B1 — scoped to `ReadingDetail`, NOT the unrelated
++`src/core/scene` `pm10`/`no2` atmosphere fields):**
++```
++grep -rnE 'detail\.(pm10|no2)|(pm10|no2)\?:|(pm10|no2)=\{' src --include='*.ts' --include='*.tsx' | grep -v 'src/core/scene'
++```
++must return zero before finishing.
++
++## Verification
++- **AC-1..2** core `src/core/air/__tests__/` (catalog literal + formatPollutant table; 100% core).
++- **AC-3a..c** `src/data/gios/__tests__/` with mocked fetch.
++  **Fixtures to CREATE (S2):** `getData_co.json`, `getData_c6h6.json`,
++  `getData_o3.json`, `getData_so2.json` (newest-non-null), plus a sensors fixture
++  listing all six for AC-3b; reuse existing `getData_allnull.json` for AC-3c.
++- **AC-4..5** `src/shared/ui/__tests__/PollutantTiles.test.tsx`.
++- **AC-6** manual on the sim, journal + evidence/16.
++
++## Resolved open questions (critic)
++1. **Benzene label** → `C₆H₆` (formula style, consistent with PM10/NO₂/O₃/SO₂/CO).
++   `design/README.md` is silent on benzene/CO/O₃/SO₂, so resolved here (not "against design").
++2. **Sub-1 rule** → keep "always 2 dp under 1.0" (1-sig-fig would lose 0.35→0.4;
++   per-pollutant precision is YAGNI). Edges pinned in AC-2.
++3. **Ragged 3/5-tile last row** → accepted; lone last tile stays 48% width (not stretched).
+diff --git a/docs/superpowers/plans/2026-08-15-m-pollutant-tiles.md b/docs/superpowers/plans/2026-08-15-m-pollutant-tiles.md
+new file mode 100644
+index 0000000..25e7a8b
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-15-m-pollutant-tiles.md
+@@ -0,0 +1,65 @@
++# Data-driven pollutant tiles — Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use checkbox syntax.
++
++**Goal:** Render one Teraz-detail tile per pollutant the resolved station actually measures (Kraków: PM10/NO₂/CO/C₆H₆; O₃/SO₂ where present), from a fixed core catalog, instead of the hard-coded 2 tiles.
++
++**Architecture:** A pure `POLLUTANTS` catalog + `PollutantReading` list in `core/air`; `ReadingDetail.pollutants` replaces `pm10?/no2?`; the GIOŚ adapter resolves the catalog via existing generic mappers; `PollutantTiles` becomes a data-driven wrapping grid deriving labels from the catalog.
++
++**Tech Stack:** TS strict, React Native, Jest + @testing-library/react-native (render/renderHook are async — await them). No new dependency.
++
++## Global Constraints
++- No new dependencies (Skia/on-board only). · TS strict, no `any` outside the justified GIOŚ data-boundary in `mappers.ts`. · Files ≤200 lines, functions ≤40 lines. · `core` is pure (zero React/data imports), 100% coverage. · Imports one-way: features→shared→core, data→core; features never import data. · Behavior tests cite AC IDs. · Spec: `docs/specs/016-pollutant-tiles.md` (authoritative — exact labels, order, AC values live there).
++- Labels are the exact glyphs `PM10 / NO₂ / O₃ / SO₂ / CO / C₆H₆` in that catalog order.
++
++---
++
++### Task 1: Core catalog + small-magnitude formatter (additive, green on its own)
++
++**Files:**
++- Modify: `src/core/air/history.ts` (or a new `src/core/air/pollutants.ts` re-exported from `index.ts` — implementer's call; keep files ≤200 lines) — add `PollutantCode`, `PollutantSpec`, `POLLUTANTS`, `PollutantReading`. **Do NOT touch `ReadingDetail` in this task.**
++- Modify: `src/core/air/index.ts` — add `formatPollutant`; ensure new types/consts are exported.
++- Test: `src/core/air/__tests__/pollutants.test.ts` (new) and extend the existing format test file for `formatPollutant`.
++
++**Interfaces:**
++- Produces (consumed by Task 2): `PollutantCode`, `PollutantSpec`, `POLLUTANTS: readonly PollutantSpec[]`, `PollutantReading { code: PollutantCode; value: number }`, `formatPollutant(value: number, precision: Precision): string`.
++
++- [ ] **Step 1: Write failing tests** — AC-1 (pin `POLLUTANTS` to the exact 6-entry literal with codes+labels+order per spec §Core); AC-2 (the full `formatPollutant` table from spec AC-2: `0.35`→`'0.35'` both precisions, `0.999`→`'1.00'`, `0`→`'0'`, negatives take the `formatConcentration` path, `333`→`'333'`, `13.1`→`'13.1'`/`'13'`, non-finite→`'—'`).
++- [ ] **Step 2: Run, verify they fail** — `npx jest src/core/air`.
++- [ ] **Step 3: Implement** — add the catalog/types; implement `formatPollutant` (spec §Core: `0 < value < 1` → `value.toFixed(2)`; else `formatConcentration(value, precision)`; the non-finite `'—'` already comes from `formatConcentration`). Keep it a clean delegation — no copy of formatConcentration's logic.
++- [ ] **Step 4: Run tests** — `npx jest src/core/air` green.
++- [ ] **Step 5: Full gate** — `npm run typecheck && npm run lint && npm test` all green, `src/core` 100% (no threshold error). Commit: `feat(core): pollutant catalog + formatPollutant (AC-1, AC-2)`.
++
++---
++
++### Task 2: ReadingDetail migration — data adapter + data-driven tiles (atomic)
++
++**Files:**
++- Modify: `src/core/air/history.ts` — change `ReadingDetail` to `{ history: HourPoint[]; pollutants: PollutantReading[] }` (remove `pm10?`/`no2?`).
++- Modify: `src/data/gios/source.ts` — add `async function resolvePollutants(sensorsJson, fetchImpl): Promise<PollutantReading[]>`; make `detailFor` compose `history` (as today) + `pollutants`.
++- Create fixtures: `src/data/gios/__tests__/fixtures/` — `getData_co.json`, `getData_c6h6.json`, `getData_o3.json`, `getData_so2.json` (each newest-non-null, GIOŚ v1 `Lista danych pomiarowych` shape with `Data`/`Wartość`), and a sensors fixture listing all six for AC-3b. Reuse existing `getData_allnull.json` for AC-3c. (Match the shape of existing fixtures in that dir.)
++- Modify: `src/shared/ui/PollutantTiles.tsx` — props `{ pollutants: PollutantReading[]; precision }`; render a wrapping 2-col grid; label via `POLLUTANTS.find(p => p.code === code)!.label`; `formatPollutant` for the value; empty list → `return null`; lone last tile stays 48% (not stretched).
++- Modify: `src/features/teraz/TerazScreen.tsx` — pass `pollutants={detail.pollutants}`.
++- Update tests (spec §"Existing tests to update"): `PollutantTiles.test.tsx`, `src/data/gios/__tests__/*`, `src/shared/place/__tests__/*`, `src/features/teraz/__tests__/*`.
++
++**Interfaces:**
++- Consumes: everything from Task 1.
++- Produces: final `ReadingDetail`, data-driven `PollutantTiles`.
++
++- [ ] **Step 1: Write failing tests first**
++  - Data (mocked `fetch`): **AC-3a** (PM10+NO₂+CO+C₆H₆ station → `pollutants` exactly `[PM10,NO2,CO,C6H6]` in order, right values, O₃/SO₂ absent, `history` from PM2.5); **AC-3b** (all-six station → `[PM10,NO2,O3,SO2,CO,C6H6]` in catalog order); **AC-3c** (a present sensor with all-null getData → omitted). Create the fixtures above.
++  - UI: **AC-4** (4-entry list → four labels derived from catalog, values via `formatPollutant`, four `µg/m³`; benzene `0.35`→`'0.35'` in `Przybliżona`; ≥1 precision cases still hold); **AC-5** (empty list → `queryByText('µg/m³')` null, no crash).
++- [ ] **Step 2: Run, verify they fail** (and that the existing pm10/no2 suites now red — expected; they get rewritten this task).
++- [ ] **Step 3: Implement** — (a) change `ReadingDetail`; (b) `resolvePollutants` (spec §Data: map `POLLUTANTS` → `findSensorId`; for present ids `getLatest`; `Promise.allSettled`; KEEP only `Number.isFinite(value)` results — remember `parseLatestValue` returns `undefined` for all-null which settles *fulfilled*; preserve catalog order); keep `detailFor` ≤40 lines by delegating; (c) rewrite `PollutantTiles`; (d) wire `TerazScreen`.
++- [ ] **Step 4: Update fallout tests** — rewrite the pm10/no2 assertions across the four suites listed; the old "missing → —" case becomes "absent pollutant → tile not rendered".
++- [ ] **Step 5: Run tests** — `npm test` green.
++- [ ] **Step 6: Completion guard (B1)** — run the scoped grep from spec §"Completion guard": `grep -rnE 'detail\.(pm10|no2)|(pm10|no2)\?:|(pm10|no2)=\{' src --include='*.ts' --include='*.tsx' | grep -v 'src/core/scene'` → must be empty. (Do NOT touch `src/core/scene`'s own pm10/no2 — unrelated atmosphere fields.)
++- [ ] **Step 7: Full gate** — `npm run typecheck && npm run lint && npm test` green, `src/core` 100%. Commit: `feat(teraz): data-driven pollutant tiles — CO/C₆H₆/O₃/SO₂ where measured (AC-3..5)`.
++
++---
++
++## Self-review
++- **Spec coverage:** AC-1/AC-2 → Task 1; AC-3a/b/c, AC-4, AC-5 → Task 2; AC-6 manual (post-build, sim). All covered.
++- **Type consistency:** `PollutantReading { code; value }` (no label) used identically in both tasks; `POLLUTANTS` order pinned once in Task 1 and relied on for ordering in Task 2.
++- **No placeholders:** exact AC values + fixture list + grep guard all carried from the spec.
++- **Atomicity:** Task 1 is purely additive (green alone); Task 2 is the atomic shape migration (splitting it would leave the tree non-compiling). Reviewer can reject Task 1 (catalog/formatter wrong) independently of Task 2 (adapter/UI wrong).
+diff --git a/src/core/air/__tests__/pollutants.test.ts b/src/core/air/__tests__/pollutants.test.ts
+new file mode 100644
+index 0000000..8e79fe5
+--- /dev/null
++++ b/src/core/air/__tests__/pollutants.test.ts
+@@ -0,0 +1,12 @@
++import { POLLUTANTS } from '..';
++
++test('AC-1: POLLUTANTS pins the six-entry catalog, codes+labels+order', () => {
++  expect(POLLUTANTS).toEqual([
++    { code: 'PM10', label: 'PM10' },
++    { code: 'NO2', label: 'NO₂' },
++    { code: 'O3', label: 'O₃' },
++    { code: 'SO2', label: 'SO₂' },
++    { code: 'CO', label: 'CO' },
++    { code: 'C6H6', label: 'C₆H₆' },
++  ]);
++});
+diff --git a/src/core/air/__tests__/scale.test.ts b/src/core/air/__tests__/scale.test.ts
+index b263f29..d959016 100644
+--- a/src/core/air/__tests__/scale.test.ts
++++ b/src/core/air/__tests__/scale.test.ts
+@@ -1,12 +1,13 @@
+ import {
+   usAqiFromPm25,
+   displayValue,
+   formatConcentration,
++  formatPollutant,
+   scaleLabel,
+ } from '..';
+ 
+ test('AC-1: usAqiFromPm25 — full EPA table, gap-trunc, clamp, non-finite', () => {
+   const cases: [number, number][] = [
+     [0, 0],
+     [9, 38],
+     [12, 50],
+@@ -44,8 +45,29 @@ test('AC-3: displayValue', () => {
+   expect(displayValue(118, 13.1, 'µg/m³', 'Dokładna')).toBe('13.1');
+   expect(displayValue(118, 13.1, 'µg/m³', 'Przybliżona')).toBe('13');
+ });
+ test('AC-4b: scaleLabel', () => {
+   expect(scaleLabel('CAQI')).toBe('');
+   expect(scaleLabel('US AQI')).toBe('US AQI');
+   expect(scaleLabel('µg/m³')).toBe('µg/m³');
+ });
++
++test('AC-2 (spec 016): formatPollutant — sub-1 always 2dp, else formatConcentration', () => {
++  expect(formatPollutant(0.35, 'Przybliżona')).toBe('0.35');
++  expect(formatPollutant(0.35, 'Dokładna')).toBe('0.35');
++  expect(formatPollutant(0.999, 'Przybliżona')).toBe('1.00');
++  expect(formatPollutant(0, 'Przybliżona')).toBe('0');
++  expect(formatPollutant(0, 'Dokładna')).toBe(
++    formatConcentration(0, 'Dokładna'),
++  );
++  expect(formatPollutant(-0.35, 'Przybliżona')).toBe(
++    formatConcentration(-0.35, 'Przybliżona'),
++  );
++  expect(formatPollutant(-4.2, 'Dokładna')).toBe(
++    formatConcentration(-4.2, 'Dokładna'),
++  );
++  expect(formatPollutant(333, 'Przybliżona')).toBe('333');
++  expect(formatPollutant(13.1, 'Dokładna')).toBe('13.1');
++  expect(formatPollutant(13.1, 'Przybliżona')).toBe('13');
++  expect(formatPollutant(NaN, 'Przybliżona')).toBe('—');
++  expect(formatPollutant(Infinity, 'Dokładna')).toBe('—');
++});
+diff --git a/src/core/air/history.ts b/src/core/air/history.ts
+index 4d1a83f..6eb46e9 100644
+--- a/src/core/air/history.ts
++++ b/src/core/air/history.ts
+@@ -1,20 +1,23 @@
+ import { indexFromPm25 } from './index';
++import type { PollutantReading } from './pollutants';
+ 
+ export interface HourPoint {
+   at: string;
+   pm25: number;
+   index: number;
+ }
+ 
++// history stays PM2.5-only; pollutants is the catalog-ordered list of every
++// measured pollutant the resolved station reports a finite current value
++// for (empty if none resolved). See spec 016.
+ export interface ReadingDetail {
+   history: HourPoint[];
+-  pm10?: number;
+-  no2?: number;
++  pollutants: PollutantReading[];
+ }
+ 
+ // Raw hourly points → chart series: drop nulls (negatives kept — rare GIOŚ
+ // artifacts, clamped harmlessly downstream), sort by `at` newest-first, take
+ // `count`, return oldest→newest, each with its derived index.
+ export function buildHistory(
+   points: { at: string; value: number | null }[],
+   count = 24,
+diff --git a/src/core/air/index.ts b/src/core/air/index.ts
+index e7fcc3a..d383d53 100644
+--- a/src/core/air/index.ts
++++ b/src/core/air/index.ts
+@@ -26,16 +26,17 @@ export function formatFreshness(measuredAt: string, now: Date): string {
+   const then = new Date(measuredAt.replace(' ', 'T'));
+   const mins = Math.floor((now.getTime() - then.getTime()) / 60000);
+   if (mins < 1) return 'przed chwilą';
+   if (mins < 60) return `${mins} min temu`;
+   return `${Math.floor(mins / 60)} godz temu`;
+ }
+ 
+ export * from './history';
++export * from './pollutants';
+ 
+ import type { Scale, Precision } from '../settings';
+ 
+ const US_AQI_BANDS = [
+   { cLo: 0.0, cHi: 12.0, iLo: 0, iHi: 50 },
+   { cLo: 12.1, cHi: 35.4, iLo: 51, iHi: 100 },
+   { cLo: 35.5, cHi: 55.4, iLo: 101, iHi: 150 },
+   { cLo: 55.5, cHi: 150.4, iLo: 151, iHi: 200 },
+@@ -54,16 +55,26 @@ export function usAqiFromPm25(pm25: number): number {
+   return Math.round(((b.iHi - b.iLo) / (b.cHi - b.cLo)) * (c - b.cLo) + b.iLo);
+ }
+ 
+ export function formatConcentration(v: number, precision: Precision): string {
+   if (!Number.isFinite(v)) return '—';
+   return precision === 'Dokładna' ? v.toFixed(1) : String(Math.round(v));
+ }
+ 
++// Tile formatting. For 0 < value < 1, ALWAYS 2 decimals (e.g. "0.35") so a real
++// sub-unit reading is never rounded away to "0". Otherwise defers to
++// formatConcentration(value, precision) — so value ≥ 1 keeps today's behavior
++// exactly, and negatives (rare GIOŚ artifacts) take that same path (not
++// special-cased). Non-finite → "—" via formatConcentration.
++export function formatPollutant(value: number, precision: Precision): string {
++  if (value > 0 && value < 1) return value.toFixed(2);
++  return formatConcentration(value, precision);
++}
++
+ export function displayValue(
+   index: number,
+   pm25: number,
+   scale: Scale,
+   precision: Precision,
+ ): string {
+   if (scale === 'US AQI') return String(usAqiFromPm25(pm25));
+   if (scale === 'µg/m³') return formatConcentration(pm25, precision);
+diff --git a/src/core/air/pollutants.ts b/src/core/air/pollutants.ts
+new file mode 100644
+index 0000000..6fd9fd2
+--- /dev/null
++++ b/src/core/air/pollutants.ts
+@@ -0,0 +1,26 @@
++export type PollutantCode = 'PM10' | 'NO2' | 'O3' | 'SO2' | 'CO' | 'C6H6';
++
++export interface PollutantSpec {
++  code: PollutantCode;
++  label: string;
++}
++
++// SINGLE SOURCE OF TRUTH for which pollutants can appear, their display label,
++// and the stable render order. `code` is the canonical air-quality formula; it
++// EQUALS the GIOŚ sensor code so the data layer passes it verbatim to
++// findSensorId — no translation layer exists or is needed.
++export const POLLUTANTS: readonly PollutantSpec[] = [
++  { code: 'PM10', label: 'PM10' },
++  { code: 'NO2', label: 'NO₂' },
++  { code: 'O3', label: 'O₃' },
++  { code: 'SO2', label: 'SO₂' },
++  { code: 'CO', label: 'CO' },
++  { code: 'C6H6', label: 'C₆H₆' },
++];
++
++// One measured pollutant with its latest value (µg/m³). `label` is NOT stored
++// here — the UI derives it from POLLUTANTS by `code` (one home for label truth).
++export interface PollutantReading {
++  code: PollutantCode;
++  value: number;
++}
+diff --git a/src/data/gios/__fixtures__/getData_c6h6.json b/src/data/gios/__fixtures__/getData_c6h6.json
+new file mode 100644
+index 0000000..460cc92
+--- /dev/null
++++ b/src/data/gios/__fixtures__/getData_c6h6.json
+@@ -0,0 +1,19 @@
++{
++ "Lista danych pomiarowych": [
++  {
++   "Kod stanowiska": "MpKrakAlKras-C6H6-1g",
++   "Data": "2026-08-12 22:00:00",
++   "Wartość": 0.35
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-C6H6-1g",
++   "Data": "2026-08-12 21:00:00",
++   "Wartość": 0.31
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-C6H6-1g",
++   "Data": "2026-08-12 20:00:00",
++   "Wartość": 0.28
++  }
++ ]
++}
+diff --git a/src/data/gios/__fixtures__/getData_co.json b/src/data/gios/__fixtures__/getData_co.json
+new file mode 100644
+index 0000000..f60e874
+--- /dev/null
++++ b/src/data/gios/__fixtures__/getData_co.json
+@@ -0,0 +1,19 @@
++{
++ "Lista danych pomiarowych": [
++  {
++   "Kod stanowiska": "MpKrakAlKras-CO-1g",
++   "Data": "2026-08-12 22:00:00",
++   "Wartość": 350
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-CO-1g",
++   "Data": "2026-08-12 21:00:00",
++   "Wartość": 342.1
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-CO-1g",
++   "Data": "2026-08-12 20:00:00",
++   "Wartość": 330.8
++  }
++ ]
++}
+diff --git a/src/data/gios/__fixtures__/getData_o3.json b/src/data/gios/__fixtures__/getData_o3.json
+new file mode 100644
+index 0000000..428b30f
+--- /dev/null
++++ b/src/data/gios/__fixtures__/getData_o3.json
+@@ -0,0 +1,19 @@
++{
++ "Lista danych pomiarowych": [
++  {
++   "Kod stanowiska": "MpKrakAlKras-O3-1g",
++   "Data": "2026-08-12 22:00:00",
++   "Wartość": 45
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-O3-1g",
++   "Data": "2026-08-12 21:00:00",
++   "Wartość": 41.7
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-O3-1g",
++   "Data": "2026-08-12 20:00:00",
++   "Wartość": 38.2
++  }
++ ]
++}
+diff --git a/src/data/gios/__fixtures__/getData_so2.json b/src/data/gios/__fixtures__/getData_so2.json
+new file mode 100644
+index 0000000..88caa3b
+--- /dev/null
++++ b/src/data/gios/__fixtures__/getData_so2.json
+@@ -0,0 +1,19 @@
++{
++ "Lista danych pomiarowych": [
++  {
++   "Kod stanowiska": "MpKrakAlKras-SO2-1g",
++   "Data": "2026-08-12 22:00:00",
++   "Wartość": 8.5
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-SO2-1g",
++   "Data": "2026-08-12 21:00:00",
++   "Wartość": 7.9
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-SO2-1g",
++   "Data": "2026-08-12 20:00:00",
++   "Wartość": 6.4
++  }
++ ]
++}
+diff --git a/src/data/gios/__fixtures__/sensors_all6.json b/src/data/gios/__fixtures__/sensors_all6.json
+new file mode 100644
+index 0000000..8cae1c8
+--- /dev/null
++++ b/src/data/gios/__fixtures__/sensors_all6.json
+@@ -0,0 +1,99 @@
++{
++ "@context": {
++  "Lista stanowisk pomiarowych dla podanej stacji": {
++   "@id": "https://api.gios.gov.pl/pjp-api/v1/rest/station/sensors"
++  },
++  "links": "https://schema.org/relatedLink",
++  "totalPages": "https://schema.org/numberOfPages"
++ },
++ "Lista stanowisk pomiarowych dla podanej stacji": [
++  {
++   "Identyfikator stanowiska": 2745,
++   "Identyfikator stacji": 400,
++   "Wskaźnik": "tlenek węgla",
++   "Wskaźnik - wzór": "CO",
++   "Wskaźnik - kod": "CO",
++   "Id wskaźnika": 8
++  },
++  {
++   "Identyfikator stanowiska": 2747,
++   "Identyfikator stacji": 400,
++   "Wskaźnik": "dwutlenek azotu",
++   "Wskaźnik - wzór": "NO2",
++   "Wskaźnik - kod": "NO2",
++   "Id wskaźnika": 6
++  },
++  {
++   "Identyfikator stanowiska": 2749,
++   "Identyfikator stacji": 400,
++   "Wskaźnik": "ozon",
++   "Wskaźnik - wzór": "O3",
++   "Wskaźnik - kod": "O3",
++   "Id wskaźnika": 5
++  },
++  {
++   "Identyfikator stanowiska": 2750,
++   "Identyfikator stacji": 400,
++   "Wskaźnik": "pył zawieszony PM10",
++   "Wskaźnik - wzór": "PM10",
++   "Wskaźnik - kod": "PM10",
++   "Id wskaźnika": 3
++  },
++  {
++   "Identyfikator stanowiska": 2751,
++   "Identyfikator stacji": 400,
++   "Wskaźnik": "dwutlenek siarki",
++   "Wskaźnik - wzór": "SO2",
++   "Wskaźnik - kod": "SO2",
++   "Id wskaźnika": 1
++  },
++  {
++   "Identyfikator stanowiska": 2752,
++   "Identyfikator stacji": 400,
++   "Wskaźnik": "pył zawieszony PM2.5",
++   "Wskaźnik - wzór": "PM2.5",
++   "Wskaźnik - kod": "PM2.5",
++   "Id wskaźnika": 69
++  },
++  {
++   "Identyfikator stanowiska": 16500,
++   "Identyfikator stacji": 400,
++   "Wskaźnik": "benzen",
++   "Wskaźnik - wzór": "C6H6",
++   "Wskaźnik - kod": "C6H6",
++   "Id wskaźnika": 10
++  }
++ ],
++ "meta": {
++  "dc:description": "Usługa sieciowa udostępniająca listę funkcjonujących stanowisk pomiarowych",
++  "sy:updateFrequency": "1",
++  "dc:language": "pol (ISO 639-2 / ISO 639-3)",
++  "schema:contentType": "application/ld+json",
++  "schema:provider": {
++   "@context": "https://schema.org",
++   "@type": "Organization",
++   "address": {
++    "@type": "PostalAddress",
++    "addressLocality": "Warszawa",
++    "postalCode": "02-362",
++    "streetAddress": "Bitwy Warszawskiej 1920 3"
++   },
++   "email": "api@gios.gov.pl",
++   "name": "Główny Inspektorat Ochrony Środowiska"
++  },
++  "schema:dateModified": "03.11.2022",
++  "dc:title": "Lista stanowisk pomiarowych na stacji",
++  "schema:datePublished": "10.04.2017",
++  "schema:keywords": "powietrze, jakość powietrza, zanieczyszczenie powietrza, stacje pomiarowe, stanowiska pomiarowe, monitoring powietrza, Państwowy Monitoring Środowiska, środowisko, stan środowiska",
++  "sy:updatePeriod": "year",
++  "schema:isPartOf": "Państwowy Monitoring Środowiska, Jakość powietrza"
++ },
++ "links": {
++  "next": "https://api.gios.gov.pl/pjp-api/v1/rest/station/sensors/400?page=1&size=20",
++  "last": "https://api.gios.gov.pl/pjp-api/v1/rest/station/sensors/400?page=0&size=20",
++  "prev": "https://api.gios.gov.pl/pjp-api/v1/rest/station/sensors/400?page=0&size=20",
++  "self": "https://api.gios.gov.pl/pjp-api/v1/rest/station/sensors/400?page=0&size=20",
++  "first": "https://api.gios.gov.pl/pjp-api/v1/rest/station/sensors/400?page=0&size=20"
++ },
++ "totalPages": 1
++}
+diff --git a/src/data/gios/__tests__/detail.test.ts b/src/data/gios/__tests__/detail.test.ts
+index 9d7c688..2585b14 100644
+--- a/src/data/gios/__tests__/detail.test.ts
++++ b/src/data/gios/__tests__/detail.test.ts
+@@ -1,15 +1,21 @@
+ import { createStationSource, createNearestStationSource } from '../source';
+ import { KRAKOW_STATION } from '../constants';
+ import sensors400 from '../__fixtures__/sensors400.json';
+ import sensorsNoNo2 from '../__fixtures__/sensors400_noNo2.json';
++import sensorsAll6 from '../__fixtures__/sensors_all6.json';
+ import pm25_26 from '../__fixtures__/getData_pm25_26.json';
+ import pm10 from '../__fixtures__/getData_pm10.json';
+ import no2 from '../__fixtures__/getData_no2.json';
++import co from '../__fixtures__/getData_co.json';
++import c6h6 from '../__fixtures__/getData_c6h6.json';
++import o3 from '../__fixtures__/getData_o3.json';
++import so2 from '../__fixtures__/getData_so2.json';
++import allnull from '../__fixtures__/getData_allnull.json';
+ import realStations from '../../../core/geo/__fixtures__/stations.json';
+ import type { Geolocation } from '../../../core/geo';
+ 
+ // Routes fetchImpl calls to fixtures by URL substring. `rejectContaining`
+ // substrings make the fetch call itself reject (simulating a network/HTTP
+ // failure), independent of the successful routes.
+ function makeFetch(
+   routes: Record<string, object>,
+@@ -23,72 +29,138 @@ function makeFetch(
+     }
+     const key = Object.keys(routes).find(k => url.includes(k));
+     if (!key) return Promise.reject(new Error(`no route stubbed: ${url}`));
+     return Promise.resolve({ json: () => Promise.resolve(routes[key]) });
+   }) as unknown as typeof fetch;
+   return { fetchImpl, calls };
+ }
+ 
++// Station 400 as fixtured: PM10 + NO2 + CO + C6H6 (no O3/SO2 sensors).
+ const KRAKOW_ROUTES = {
+   '/station/sensors/400': sensors400,
+   '/data/getData/2752': pm25_26,
+   '/data/getData/2750': pm10,
+   '/data/getData/2747': no2,
++  '/data/getData/2745': co,
++  '/data/getData/16500': c6h6,
+ };
+ 
+-describe('AC-6: getDetail composes history + PM10/NO2', () => {
+-  test('resolves history, pm10, no2 and fetches the PM2.5 series with size=100', async () => {
++describe('AC-3a: detailFor resolves pollutants in catalog order (no O3/SO2 sensors)', () => {
++  test('PM10+NO2+CO+C6H6 station → pollutants is exactly [PM10,NO2,CO,C6H6] in order, history from PM2.5', async () => {
+     const { fetchImpl, calls } = makeFetch(KRAKOW_ROUTES);
+     const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
+       .getDetail!();
+ 
+     expect(detail.history.length).toBe(24);
+     expect(detail.history[0].at).toBe('2026-08-11 23:00:00'); // oldest
+     expect(detail.history[23].at).toBe('2026-08-12 22:00:00'); // newest
+-    expect(detail.pm10).toBe(30);
+-    expect(detail.no2).toBe(22);
++
++    expect(detail.pollutants).toEqual([
++      { code: 'PM10', value: 30 },
++      { code: 'NO2', value: 22 },
++      { code: 'CO', value: 350 },
++      { code: 'C6H6', value: 0.35 },
++    ]);
+ 
+     const pm25Call = calls.find(u => u.includes('/data/getData/2752'));
+     expect(pm25Call).toContain('size=100');
+   });
+ 
+-  test('missing NO2 sensor → no2 undefined, history + pm10 still present', async () => {
++  test('missing NO2 sensor → NO2 omitted, PM10/CO/C6H6 still present in order', async () => {
+     const { fetchImpl } = makeFetch({
+       '/station/sensors/400': sensorsNoNo2,
+       '/data/getData/2752': pm25_26,
+       '/data/getData/2750': pm10,
++      '/data/getData/2745': co,
++      '/data/getData/16500': c6h6,
+     });
+     const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
+       .getDetail!();
+ 
+-    expect(detail.no2).toBeUndefined();
++    expect(detail.pollutants).toEqual([
++      { code: 'PM10', value: 30 },
++      { code: 'CO', value: 350 },
++      { code: 'C6H6', value: 0.35 },
++    ]);
+     expect(detail.history.length).toBe(24);
+-    expect(detail.pm10).toBe(30);
+   });
+ });
+ 
+-describe('AC-6b: per-pollutant failure isolation — getDetail never rejects', () => {
+-  test('NO2 fetch rejects → no2 undefined, history + pm10 present', async () => {
++describe('AC-3b: detailFor resolves all six pollutants in catalog order', () => {
++  test('station exposing all six sensors → pollutants equals [PM10,NO2,O3,SO2,CO,C6H6]', async () => {
++    const { fetchImpl } = makeFetch({
++      '/station/sensors/400': sensorsAll6,
++      '/data/getData/2752': pm25_26,
++      '/data/getData/2750': pm10,
++      '/data/getData/2747': no2,
++      '/data/getData/2749': o3,
++      '/data/getData/2751': so2,
++      '/data/getData/2745': co,
++      '/data/getData/16500': c6h6,
++    });
++    const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
++      .getDetail!();
++
++    expect(detail.pollutants).toEqual([
++      { code: 'PM10', value: 30 },
++      { code: 'NO2', value: 22 },
++      { code: 'O3', value: 45 },
++      { code: 'SO2', value: 8.5 },
++      { code: 'CO', value: 350 },
++      { code: 'C6H6', value: 0.35 },
++    ]);
++  });
++});
++
++describe('AC-3c: a present sensor with all-null getData is omitted (finite filter, not merely settled)', () => {
++  test('CO sensor present but getData returns no non-null readings → CO omitted, others present', async () => {
++    const { fetchImpl } = makeFetch({
++      '/station/sensors/400': sensors400,
++      '/data/getData/2752': pm25_26,
++      '/data/getData/2750': pm10,
++      '/data/getData/2747': no2,
++      '/data/getData/2745': allnull, // CO sensor id, all-null series
++      '/data/getData/16500': c6h6,
++    });
++    const detail = await createStationSource(KRAKOW_STATION, fetchImpl)
++      .getDetail!();
++
++    expect(detail.pollutants).toEqual([
++      { code: 'PM10', value: 30 },
++      { code: 'NO2', value: 22 },
++      { code: 'C6H6', value: 0.35 },
++    ]);
++  });
++});
++
++describe('AC-3: per-pollutant failure isolation — getDetail never rejects', () => {
++  test('NO2 fetch rejects → NO2 omitted, other pollutants + history present', async () => {
+     const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2747']);
+     const source = createStationSource(KRAKOW_STATION, fetchImpl);
+-    await expect(source.getDetail!()).resolves.toEqual(
+-      expect.objectContaining({ no2: undefined, pm10: 30 }),
+-    );
+     const detail = await source.getDetail!();
++    expect(detail.pollutants).toEqual([
++      { code: 'PM10', value: 30 },
++      { code: 'CO', value: 350 },
++      { code: 'C6H6', value: 0.35 },
++    ]);
+     expect(detail.history.length).toBe(24);
+   });
+ 
+-  test('PM2.5 fetch rejects → history: [], pm10/no2 present', async () => {
++  test('PM2.5 fetch rejects → history: [], pollutants still present', async () => {
+     const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2752']);
+     const source = createStationSource(KRAKOW_STATION, fetchImpl);
+     const detail = await source.getDetail!();
+     expect(detail.history).toEqual([]);
+-    expect(detail.pm10).toBe(30);
+-    expect(detail.no2).toBe(22);
++    expect(detail.pollutants).toEqual([
++      { code: 'PM10', value: 30 },
++      { code: 'NO2', value: 22 },
++      { code: 'CO', value: 350 },
++      { code: 'C6H6', value: 0.35 },
++    ]);
+   });
+ });
+ 
+ describe('AC-6c: nearest source location fallback shares the resolved station', () => {
+   test('geo rejects → Kraków fallback station used by both getDetail and getCurrentReading', async () => {
+     const { fetchImpl } = makeFetch(KRAKOW_ROUTES);
+     const getCurrentPosition = jest.fn(async () => {
+       throw new Error('permission denied');
+@@ -109,16 +181,18 @@ describe('AC-6c: nearest source location fallback shares the resolved station',
+ 
+   test('geo succeeds → nearest station resolution shared across getDetail and getCurrentReading', async () => {
+     const { fetchImpl, calls } = makeFetch({
+       '/station/findAll': realStations,
+       '/station/sensors/530': sensors400,
+       '/data/getData/2752': pm25_26,
+       '/data/getData/2750': pm10,
+       '/data/getData/2747': no2,
++      '/data/getData/2745': co,
++      '/data/getData/16500': c6h6,
+     });
+     const getCurrentPosition = jest.fn(async () => ({ lat: 52.22, lon: 21.0 }));
+     const warsaw: Geolocation = { getCurrentPosition };
+ 
+     const source = createNearestStationSource(warsaw, fetchImpl);
+     const detail = await source.getDetail!();
+     expect(detail.history.length).toBe(24);
+ 
+@@ -137,26 +211,32 @@ describe('AC-6c: nearest source location fallback shares the resolved station',
+     // getCurrentReading, never render the empty (unreadable) nearest station.
+     const { fetchImpl } = makeFetch(
+       {
+         '/station/findAll': realStations,
+         '/station/sensors/400': sensors400,
+         '/data/getData/2752': pm25_26,
+         '/data/getData/2750': pm10,
+         '/data/getData/2747': no2,
++        '/data/getData/2745': co,
++        '/data/getData/16500': c6h6,
+       },
+       ['/station/sensors/530'], // reading the nearest (Warszawa) station fails
+     );
+     const getCurrentPosition = jest.fn(async () => ({ lat: 52.22, lon: 21.0 }));
+     const source = createNearestStationSource(
+       { getCurrentPosition },
+       fetchImpl,
+     );
+ 
+     const reading = await source.getCurrentReading();
+     const detail = await source.getDetail!();
+ 
+     expect(reading.city).toBe('Kraków'); // hero fell back to Kraków
+     expect(detail.history.length).toBe(24); // detail followed — NOT empty
+-    expect(detail.pm10).toBe(30);
+-    expect(detail.no2).toBe(22);
++    expect(detail.pollutants).toEqual([
++      { code: 'PM10', value: 30 },
++      { code: 'NO2', value: 22 },
++      { code: 'CO', value: 350 },
++      { code: 'C6H6', value: 0.35 },
++    ]);
+   });
+ });
+diff --git a/src/data/gios/source.ts b/src/data/gios/source.ts
+index e1a2504..13ebf74 100644
+--- a/src/data/gios/source.ts
++++ b/src/data/gios/source.ts
+@@ -1,10 +1,15 @@
+-import type { AirQualitySource, Reading, ReadingDetail } from '../../core/air';
+-import { buildHistory, indexFromPm25 } from '../../core/air';
++import type {
++  AirQualitySource,
++  PollutantReading,
++  Reading,
++  ReadingDetail,
++} from '../../core/air';
++import { buildHistory, indexFromPm25, POLLUTANTS } from '../../core/air';
+ import {
+   nearestStation,
+   stationLabel,
+   type Geolocation,
+   type Station,
+ } from '../../core/geo';
+ import { GIOS_BASE, KRAKOW_STATION } from './constants';
+ import {
+@@ -34,54 +39,83 @@ async function readStation(
+     index: indexFromPm25(pm25),
+     pm25,
+     measuredAt,
+     city: station.city,
+     station: stationLabel(station),
+   };
+ }
+ 
+-// Builds a ReadingDetail for one Station: 24h PM2.5 history plus latest
+-// PM10/NO2. Each pollutant is resolved independently via Promise.allSettled
+-// so one missing sensor or failed fetch never fails the whole detail — it
+-// just leaves that field empty (history: [], pm10/no2: undefined).
++async function getLatest(
++  id: number,
++  fetchImpl: typeof fetch,
++): Promise<number | undefined> {
++  return parseLatestValue(
++    await (await fetchImpl(`${GIOS_BASE}/data/getData/${id}`)).json(),
++  );
++}
++
++// Resolves every catalog pollutant the station reports a finite latest value
++// for, preserving POLLUTANTS order. Absent sensor → skipped (no fetch). All
++// fetches run via Promise.allSettled; a settled result is KEPT only if
++// Number.isFinite(value) — parseLatestValue returns `undefined` for an
++// all-null sensor, which settles FULFILLED (not rejected), so the finite
++// check (not just status==='fulfilled') is what filters it out.
++// `any`: sensorsJson is untyped GIOŚ JSON, the same boundary findSensorId
++// already narrows in mappers.ts — no new boundary introduced here.
++async function resolvePollutants(
++  sensorsJson: any,
++  fetchImpl: typeof fetch,
++): Promise<PollutantReading[]> {
++  const settled = await Promise.allSettled(
++    POLLUTANTS.map(async ({ code }): Promise<PollutantReading> => {
++      const id = findSensorId(sensorsJson, code);
++      if (id == null) throw new Error(`no ${code} sensor`);
++      const value = await getLatest(id, fetchImpl);
++      return { code, value: value ?? NaN };
++    }),
++  );
++  return settled
++    .filter(
++      (r): r is PromiseFulfilledResult<PollutantReading> =>
++        r.status === 'fulfilled' && Number.isFinite(r.value.value),
++    )
++    .map(r => r.value);
++}
++
++// Builds a ReadingDetail for one Station: 24h PM2.5 history plus the
++// catalog-ordered pollutant readings. history and pollutants are resolved
++// independently via Promise.allSettled so one missing/failed fetch never
++// fails the whole detail — it just leaves that field empty.
+ async function detailFor(
+   station: Station,
+   fetchImpl: typeof fetch,
+ ): Promise<ReadingDetail> {
+   const sensors = await (
+     await fetchImpl(`${GIOS_BASE}/station/sensors/${station.id}`)
+   ).json();
+   const pm25Id = findSensorId(sensors, 'PM2.5');
+-  const pm10Id = findSensorId(sensors, 'PM10');
+-  const no2Id = findSensorId(sensors, 'NO2');
+ 
+   const getSeries = async (id: number) =>
+     buildHistory(
+       parseSeries(
+         await (
+           await fetchImpl(`${GIOS_BASE}/data/getData/${id}?size=100`)
+         ).json(),
+       ),
+     );
+-  const getLatest = async (id: number) =>
+-    parseLatestValue(
+-      await (await fetchImpl(`${GIOS_BASE}/data/getData/${id}`)).json(),
+-    );
+ 
+-  const [history, pm10, no2] = await Promise.allSettled([
++  const [history, pollutants] = await Promise.allSettled([
+     pm25Id != null ? getSeries(pm25Id) : Promise.reject(new Error('no pm2.5')),
+-    pm10Id != null ? getLatest(pm10Id) : Promise.reject(new Error('no pm10')),
+-    no2Id != null ? getLatest(no2Id) : Promise.reject(new Error('no no2')),
++    resolvePollutants(sensors, fetchImpl),
+   ]);
+ 
+   return {
+     history: history.status === 'fulfilled' ? history.value : [],
+-    pm10: pm10.status === 'fulfilled' ? pm10.value : undefined,
+-    no2: no2.status === 'fulfilled' ? no2.value : undefined,
++    pollutants: pollutants.status === 'fulfilled' ? pollutants.value : [],
+   };
+ }
+ 
+ // Kraków-only convenience source (spec 004): builds the reading for the fixed
+ // Kraków station. Nearest-by-location resolution goes through createNearestStationSource.
+ export function createGiosSource(
+   fetchImpl: typeof fetch = fetch,
+ ): AirQualitySource {
+diff --git a/src/features/teraz/TerazScreen.tsx b/src/features/teraz/TerazScreen.tsx
+index 04645d3..59cd73b 100644
+--- a/src/features/teraz/TerazScreen.tsx
++++ b/src/features/teraz/TerazScreen.tsx
+@@ -55,18 +55,17 @@ export function TerazScreen() {
+           scaleCaption={scaleCaption}
+           eyebrow={eyebrow}
+         />
+         {detail && (
+           <View style={styles.detail}>
+             <HistoryChart history={detail.history} />
+             <View style={styles.tiles}>
+               <PollutantTiles
+-                pm10={detail.pm10}
+-                no2={detail.no2}
++                pollutants={detail.pollutants}
+                 precision={settings.precision}
+               />
+             </View>
+           </View>
+         )}
+       </ScrollView>
+     </GradientBackground>
+   );
+diff --git a/src/features/teraz/__tests__/TerazScreen.test.tsx b/src/features/teraz/__tests__/TerazScreen.test.tsx
+index 09bf193..95525f4 100644
+--- a/src/features/teraz/__tests__/TerazScreen.test.tsx
++++ b/src/features/teraz/__tests__/TerazScreen.test.tsx
+@@ -17,18 +17,20 @@ import {
+   pendingAirSource,
+ } from '../../../shared/test/fakeAirSource';
+ 
+ const detail: ReadingDetail = {
+   history: [
+     { at: 'a', pm25: 10, index: 10 },
+     { at: 'b', pm25: 20, index: 20 },
+   ],
+-  pm10: 40,
+-  no2: 22,
++  pollutants: [
++    { code: 'PM10', value: 40 },
++    { code: 'NO2', value: 22 },
++  ],
+ };
+ const detailedSource = (): AirQualitySource => ({
+   ...fakeAirSource(),
+   getDetail: async () => detail,
+ });
+ 
+ const settingsStore = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
+   load: async () => s,
+diff --git a/src/shared/place/__tests__/usePlaceDetail.test.tsx b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+index 1e88655..5b612ad 100644
+--- a/src/shared/place/__tests__/usePlaceDetail.test.tsx
++++ b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+@@ -15,18 +15,20 @@ const READING: Reading = {
+   pm25: 5,
+   measuredAt: '2026-08-13 12:00:00',
+   city: 'Kraków',
+   station: 'x',
+ };
+ 
+ const detail: ReadingDetail = {
+   history: [{ at: 't', pm25: 5, index: 5 }],
+-  pm10: 30,
+-  no2: 22,
++  pollutants: [
++    { code: 'PM10', value: 30 },
++    { code: 'NO2', value: 22 },
++  ],
+ };
+ 
+ const wrap = (sfp: SourceForPlace) =>
+   function W({ children }: { children: ReactNode }) {
+     return (
+       <PlaceSourceProvider sourceForPlace={sfp}>{children}</PlaceSourceProvider>
+     );
+   };
+diff --git a/src/shared/ui/PollutantTiles.tsx b/src/shared/ui/PollutantTiles.tsx
+index 0fc99bc..94fec55 100644
+--- a/src/shared/ui/PollutantTiles.tsx
++++ b/src/shared/ui/PollutantTiles.tsx
+@@ -1,62 +1,70 @@
+ import { View, Text, StyleSheet } from 'react-native';
+ import { colors } from '../tokens';
+ import type { Precision } from '../../core/settings';
+-import { formatConcentration } from '../../core/air';
++import {
++  formatPollutant,
++  POLLUTANTS,
++  type PollutantReading,
++} from '../../core/air';
+ 
+ function Tile({
+-  label,
++  code,
+   value,
+   precision,
+-}: {
+-  label: string;
+-  value: number | undefined;
+-  precision: Precision;
+-}) {
++}: PollutantReading & { precision: Precision }) {
++  const label = POLLUTANTS.find(p => p.code === code)!.label;
+   return (
+     <View style={styles.tile}>
+       <Text style={styles.label}>{label}</Text>
+-      <Text style={styles.value}>
+-        {value === undefined ? '—' : formatConcentration(value, precision)}
+-      </Text>
++      <Text style={styles.value}>{formatPollutant(value, precision)}</Text>
+       <Text style={styles.unit}>µg/m³</Text>
+     </View>
+   );
+ }
+ 
++// Wrapping 2-column grid: one tile per measured pollutant, in catalog order.
++// Empty list → render nothing (no crash, no stray unit). A lone last tile
++// (odd count) keeps its 48% width — not stretched to full width.
+ export function PollutantTiles({
+-  pm10,
+-  no2,
++  pollutants,
+   precision,
+ }: {
+-  pm10?: number;
+-  no2?: number;
++  pollutants: PollutantReading[];
+   precision: Precision;
+ }) {
++  if (pollutants.length === 0) return null;
+   return (
+     <View style={styles.row}>
+-      <Tile label="PM10" value={pm10} precision={precision} />
+-      <Tile label="NO₂" value={no2} precision={precision} />
++      {pollutants.map(p => (
++        <Tile
++          key={p.code}
++          code={p.code}
++          value={p.value}
++          precision={precision}
++        />
++      ))}
+     </View>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+   row: {
+     flexDirection: 'row',
++    flexWrap: 'wrap',
+     gap: 12,
+   },
+   tile: {
+     backgroundColor: colors.glass,
+     borderWidth: 1,
+     borderColor: colors.glassBorder,
+     borderRadius: 20,
+     padding: 16,
+-    flex: 1,
++    flexBasis: '48%',
+   },
+   label: {
+     color: colors.text.dim,
+     fontSize: 11,
+     fontWeight: '600',
+     letterSpacing: 1,
+   },
+   value: {
+diff --git a/src/shared/ui/__tests__/PollutantTiles.test.tsx b/src/shared/ui/__tests__/PollutantTiles.test.tsx
+index 8c0a531..ce47039 100644
+--- a/src/shared/ui/__tests__/PollutantTiles.test.tsx
++++ b/src/shared/ui/__tests__/PollutantTiles.test.tsx
+@@ -1,30 +1,62 @@
+ import { render, screen } from '@testing-library/react-native';
+ import { PollutantTiles } from '../PollutantTiles';
++import type { PollutantReading } from '../../../core/air';
+ 
+-test('AC-9: PM10 + NO₂ labels, values, µg/m³ units', async () => {
+-  await render(<PollutantTiles pm10={40} no2={22} precision="Przybliżona" />);
++test('AC-4: 4-entry list renders all four labels (from catalog), values via formatPollutant, four µg/m³ units', async () => {
++  const pollutants: PollutantReading[] = [
++    { code: 'PM10', value: 40 },
++    { code: 'NO2', value: 22 },
++    { code: 'CO', value: 350 },
++    { code: 'C6H6', value: 0.35 },
++  ];
++  await render(
++    <PollutantTiles pollutants={pollutants} precision="Przybliżona" />,
++  );
+   expect(screen.getByText('PM10')).toBeTruthy();
+   expect(screen.getByText('NO₂')).toBeTruthy();
++  expect(screen.getByText('CO')).toBeTruthy();
++  expect(screen.getByText('C₆H₆')).toBeTruthy();
+   expect(screen.getByText('40')).toBeTruthy();
+   expect(screen.getByText('22')).toBeTruthy();
+-  expect(screen.getAllByText('µg/m³')).toHaveLength(2);
++  expect(screen.getByText('350')).toBeTruthy();
++  // benzene 0.35 shows "0.35" even in Przybliżona (sub-1 always 2 dp)
++  expect(screen.getByText('0.35')).toBeTruthy();
++  expect(screen.getAllByText('µg/m³')).toHaveLength(4);
+ });
+ 
+-test('AC-9: missing value → —', async () => {
++test('AC-4: absent pollutant → tile not rendered', async () => {
++  const pollutants: PollutantReading[] = [{ code: 'PM10', value: 40 }];
+   await render(
+-    <PollutantTiles pm10={40} no2={undefined} precision="Przybliżona" />,
++    <PollutantTiles pollutants={pollutants} precision="Przybliżona" />,
+   );
+-  expect(screen.getByText('—')).toBeTruthy();
++  expect(screen.getByText('PM10')).toBeTruthy();
++  expect(screen.queryByText('NO₂')).toBeNull();
++  expect(screen.getAllByText('µg/m³')).toHaveLength(1);
+ });
+ 
+-test('AC-7: precision Dokładna formats with one decimal', async () => {
+-  await render(<PollutantTiles pm10={13.1} no2={22} precision="Dokładna" />);
++test('AC-4: precision Dokładna formats ≥1 values with one decimal', async () => {
++  const pollutants: PollutantReading[] = [
++    { code: 'PM10', value: 13.1 },
++    { code: 'NO2', value: 22 },
++  ];
++  await render(<PollutantTiles pollutants={pollutants} precision="Dokładna" />);
+   expect(screen.getByText('13.1')).toBeTruthy();
+   expect(screen.getByText('22.0')).toBeTruthy();
+ });
+ 
+-test('AC-7: precision Przybliżona rounds to an integer', async () => {
+-  await render(<PollutantTiles pm10={13.1} no2={22} precision="Przybliżona" />);
++test('AC-4: precision Przybliżona rounds ≥1 values to an integer', async () => {
++  const pollutants: PollutantReading[] = [
++    { code: 'PM10', value: 13.1 },
++    { code: 'NO2', value: 22 },
++  ];
++  await render(
++    <PollutantTiles pollutants={pollutants} precision="Przybliżona" />,
++  );
+   expect(screen.getByText('13')).toBeTruthy();
+   expect(screen.getByText('22')).toBeTruthy();
+ });
++
++test('AC-5: empty pollutants → renders nothing (no crash)', async () => {
++  await render(<PollutantTiles pollutants={[]} precision="Przybliżona" />);
++  expect(screen.queryByText('µg/m³')).toBeNull();
++});

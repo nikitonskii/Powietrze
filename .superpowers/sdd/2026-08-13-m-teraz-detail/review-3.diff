@@ -1,0 +1,624 @@
+### commits
+70cc85f feat(data): getDetail (history + PM10/NO2, allSettled, shared station) (AC-6/6b/6c, spec 012)
+
+### stat
+ .../sdd/2026-08-13-m-teraz-detail/task-3-report.md | 109 +++++++++++++++++
+ src/data/gios/__fixtures__/getData_no2.json        |  19 +++
+ src/data/gios/__fixtures__/getData_pm10.json       |  19 +++
+ src/data/gios/__fixtures__/getData_pm25_26.json    | 134 +++++++++++++++++++++
+ src/data/gios/__tests__/detail.test.ts             | 124 +++++++++++++++++++
+ src/data/gios/source.ts                            | 108 +++++++++++++++--
+ 6 files changed, 501 insertions(+), 12 deletions(-)
+
+### diff
+diff --git a/.superpowers/sdd/2026-08-13-m-teraz-detail/task-3-report.md b/.superpowers/sdd/2026-08-13-m-teraz-detail/task-3-report.md
+new file mode 100644
+index 0000000..6a274f4
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-13-m-teraz-detail/task-3-report.md
+@@ -0,0 +1,109 @@
++# Task 3 report — GIOŚ `getDetail()` on the sources
++
++Worktree: `/Users/curiosity/Documents/private/Powietrze/.claude/worktrees/m-loc-nearest`
++Branch: `feature/m-teraz-detail`
++
++## Status: DONE
++
++## What was built
++
++### `src/data/gios/source.ts`
++- Added `detailFor(station, fetchImpl): Promise<ReadingDetail>` — fetches the
++  station's sensors, finds PM2.5/PM10/NO2 sensor ids via `findSensorId`,
++  then resolves all three pollutants concurrently with `Promise.allSettled`:
++  - PM2.5 → `getData/{id}?size=100` → `parseSeries` → `buildHistory` (24h,
++    oldest→newest).
++  - PM10 / NO2 → `getData/{id}` (no `size` param) → `parseLatestValue`.
++  - Missing sensor (id `null`) short-circuits to a rejected promise for that
++    slot, so `Promise.allSettled` treats "no sensor" the same as "fetch
++    failed" — no per-pollutant network call is made when the sensor doesn't
++    exist.
++  - `getDetail()` never rejects: `history` defaults to `[]`, `pm10`/`no2`
++    default to `undefined` on failure.
++- Added local type `SourceWithDetail = AirQualitySource & { getDetail: () =>
++  Promise<ReadingDetail> }` since `AirQualitySource` itself doesn't declare
++  `getDetail` yet (that's Task 4's core change per the brief). All three
++  factories (`createGiosSource`, `createStationSource`,
++  `createNearestStationSource`) now return `SourceWithDetail` and expose
++  `getDetail`.
++- Refactored `createNearestStationSource` to memoize station resolution in a
++  `resolveStation()` closure (`stationP: Promise<Station> | null`), shared by
++  both `getCurrentReading` and `getDetail`. Preserved the exact existing
++  fallback semantics:
++  - geo/stations failure → resolve to `KRAKOW_STATION` (silent fallback,
++    `__DEV__`-only warning).
++  - reading failure (post station-resolution) → re-fetch the Kraków reading
++    directly, independent of `resolveStation`'s own fallback.
++  This was verified against all pre-existing `nearestSource.test.ts` cases
++  (geo reject, reading-fetch reject, stations-fetch reject) — all still pass
++  unmodified.
++
++### Fixtures added (`src/data/gios/__fixtures__/`)
++- `getData_pm25_26.json` — 26 hourly PM2.5 rows, newest-first
++  (2026-08-12 22:00 → 2026-08-11 21:00, no gaps), all non-null, so
++  `buildHistory` fills the full 24 and drops the oldest 2.
++- `getData_pm10.json` — 3 rows, newest value `30`.
++- `getData_no2.json` — 3 rows, newest value `22`.
++
++### Test added: `src/data/gios/__tests__/detail.test.ts`
++Local `makeFetch(routes, rejectContaining?)` helper routes by URL substring
++to fixture bodies, or rejects the fetch call itself for URLs matching
++`rejectContaining` (simulating a network failure independent from routing).
++
++- **AC-6**: `createStationSource(KRAKOW_STATION, fetch).getDetail()` →
++  `history.length === 24`, oldest→newest order (`history[0].at ===
++  '2026-08-11 23:00:00'`, `history[23].at === '2026-08-12 22:00:00'`),
++  `pm10 === 30`, `no2 === 22`; asserts the PM2.5 `getData` URL contains
++  `size=100`.
++- **AC-6 missing sensor**: sensors JSON derived from `sensors400.json` with
++  the NO2 entry filtered out (inline in the test) → `no2` undefined,
++  `history`/`pm10` present. No fetch call is made for the NO2 `getData` URL
++  (proven implicitly: no route stubbed for it, and the test doesn't fail
++  with "no route stubbed").
++- **AC-6b failure isolation**: NO2 `getData` URL rejected → `no2` undefined,
++  `history`/`pm10` present; PM2.5 `getData` URL rejected → `history: []`,
++  `pm10`/`no2` present. Both assert via `.resolves` that `getDetail()` never
++  rejects.
++- **AC-6c location fallback**: `createNearestStationSource` with a
++  `getCurrentPosition` that always rejects → `getDetail()` resolves using
++  the Kraków fallback station (`history.length === 24`), and a subsequent
++  `getCurrentReading()` call returns the same Kraków identity
++  (`city: 'Kraków'`, `station: 'Aleja Krasińskiego · stacja GIOŚ'`). A
++  `jest.fn()` on `getCurrentPosition` asserts it was called exactly once
++  across both `getDetail()` and `getCurrentReading()` — proving the shared
++  `resolveStation()` memoization (B1), not just matching output.
++
++## Verification
++
++- `npx jest src/data/gios` → **6 suites, 21 tests, all pass** (new
++  `detail.test.ts` plus pre-existing `source.test.ts`,
++  `stationSource.test.ts`, `nearestSource.test.ts`, `mappers.test.ts`,
++  `parseStations.test.ts` — all unmodified and still green after the
++  `resolveStation` refactor).
++- `npm test` → **45 suites, 153 tests, all pass** (full repo).
++- `npm run typecheck` → clean, no errors.
++- `npm run lint` → 0 errors, 3 pre-existing warnings unrelated to this
++  change (`App.tsx` inline style, `Toggle.tsx` inline style,
++  `mappers.ts` stale `eslint-disable` comment — none introduced by this
++  task; `mappers.ts` wasn't touched).
++
++## Deviations from the brief
++
++- Brief's example `detailFor` uses local variable name `h` for the history
++  settled-result; I used `history` for readability. Same logic.
++- `SourceWithDetail`'s `getDetail` is declared as **required** (not
++  optional) since every factory in this task always provides it; the brief
++  only marks the *interface* addition (Task 4) as optional. This let the
++  test call `.getDetail()` directly without a non-null assertion.
++- Added `getDetail` to `createGiosSource` as the brief's "nice-to-have"
++  suggests — it was a one-line addition reusing `detailFor`.
++- Fixtures use a minimal JSON shape (`{"Lista danych pomiarowych": [...]}`)
++  rather than the full `@context`/`meta`/`links`/`totalPages` envelope
++  present in `getData2752.json`, matching the precedent already set by
++  `getData_allnull.json`. `parseSeries`/`buildHistory` only read the one key,
++  so this is behaviorally identical and keeps the fixtures small.
++
++## Commit
++
++Committed on `feature/m-teraz-detail`:
++`feat(data): getDetail (history + PM10/NO2, allSettled, shared station) (AC-6/6b/6c, spec 012)`
+diff --git a/src/data/gios/__fixtures__/getData_no2.json b/src/data/gios/__fixtures__/getData_no2.json
+new file mode 100644
+index 0000000..f5273db
+--- /dev/null
++++ b/src/data/gios/__fixtures__/getData_no2.json
+@@ -0,0 +1,19 @@
++{
++ "Lista danych pomiarowych": [
++  {
++   "Kod stanowiska": "MpKrakAlKras-NO2-1g",
++   "Data": "2026-08-12 22:00:00",
++   "Wartość": 22
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-NO2-1g",
++   "Data": "2026-08-12 21:00:00",
++   "Wartość": 19.4
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-NO2-1g",
++   "Data": "2026-08-12 20:00:00",
++   "Wartość": 21.2
++  }
++ ]
++}
+diff --git a/src/data/gios/__fixtures__/getData_pm10.json b/src/data/gios/__fixtures__/getData_pm10.json
+new file mode 100644
+index 0000000..c7112a2
+--- /dev/null
++++ b/src/data/gios/__fixtures__/getData_pm10.json
+@@ -0,0 +1,19 @@
++{
++ "Lista danych pomiarowych": [
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM10-1g",
++   "Data": "2026-08-12 22:00:00",
++   "Wartość": 30
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM10-1g",
++   "Data": "2026-08-12 21:00:00",
++   "Wartość": 28.5
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM10-1g",
++   "Data": "2026-08-12 20:00:00",
++   "Wartość": 27.1
++  }
++ ]
++}
+diff --git a/src/data/gios/__fixtures__/getData_pm25_26.json b/src/data/gios/__fixtures__/getData_pm25_26.json
+new file mode 100644
+index 0000000..9c7e1eb
+--- /dev/null
++++ b/src/data/gios/__fixtures__/getData_pm25_26.json
+@@ -0,0 +1,134 @@
++{
++ "Lista danych pomiarowych": [
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 22:00:00",
++   "Wartość": 12.1
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 21:00:00",
++   "Wartość": 11.8
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 20:00:00",
++   "Wartość": 10.9
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 19:00:00",
++   "Wartość": 10.2
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 18:00:00",
++   "Wartość": 9.8
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 17:00:00",
++   "Wartość": 9.1
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 16:00:00",
++   "Wartość": 8.7
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 15:00:00",
++   "Wartość": 8.3
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 14:00:00",
++   "Wartość": 7.9
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 13:00:00",
++   "Wartość": 7.4
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 12:00:00",
++   "Wartość": 7
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 11:00:00",
++   "Wartość": 6.6
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 10:00:00",
++   "Wartość": 6.1
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 09:00:00",
++   "Wartość": 5.9
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 08:00:00",
++   "Wartość": 5.7
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 07:00:00",
++   "Wartość": 5.6
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 06:00:00",
++   "Wartość": 5.4
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 05:00:00",
++   "Wartość": 5.2
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 04:00:00",
++   "Wartość": 5.9
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 03:00:00",
++   "Wartość": 6.3
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 02:00:00",
++   "Wartość": 6.8
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 01:00:00",
++   "Wartość": 7.2
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-12 00:00:00",
++   "Wartość": 7.9
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-11 23:00:00",
++   "Wartość": 8.6
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-11 22:00:00",
++   "Wartość": 9.3
++  },
++  {
++   "Kod stanowiska": "MpKrakAlKras-PM2.5-1g",
++   "Data": "2026-08-11 21:00:00",
++   "Wartość": 10.1
++  }
++ ]
++}
+diff --git a/src/data/gios/__tests__/detail.test.ts b/src/data/gios/__tests__/detail.test.ts
+new file mode 100644
+index 0000000..04de559
+--- /dev/null
++++ b/src/data/gios/__tests__/detail.test.ts
+@@ -0,0 +1,124 @@
++import { createStationSource, createNearestStationSource } from '../source';
++import { KRAKOW_STATION } from '../constants';
++import sensors400 from '../__fixtures__/sensors400.json';
++import pm25_26 from '../__fixtures__/getData_pm25_26.json';
++import pm10 from '../__fixtures__/getData_pm10.json';
++import no2 from '../__fixtures__/getData_no2.json';
++import type { Geolocation } from '../../../core/geo';
++
++// Routes fetchImpl calls to fixtures by URL substring. `rejectContaining`
++// substrings make the fetch call itself reject (simulating a network/HTTP
++// failure), independent of the successful routes.
++function makeFetch(
++  routes: Record<string, object>,
++  rejectContaining: string[] = [],
++): { fetchImpl: typeof fetch; calls: string[] } {
++  const calls: string[] = [];
++  const fetchImpl = ((url: string) => {
++    calls.push(url);
++    if (rejectContaining.some(s => url.includes(s))) {
++      return Promise.reject(new Error(`boom: ${url}`));
++    }
++    const key = Object.keys(routes).find(k => url.includes(k));
++    if (!key) return Promise.reject(new Error(`no route stubbed: ${url}`));
++    return Promise.resolve({ json: () => Promise.resolve(routes[key]) });
++  }) as unknown as typeof fetch;
++  return { fetchImpl, calls };
++}
++
++const KRAKOW_ROUTES = {
++  '/station/sensors/400': sensors400,
++  '/data/getData/2752': pm25_26,
++  '/data/getData/2750': pm10,
++  '/data/getData/2747': no2,
++};
++
++// sensors400 minus the NO2 entry (id 2747) — station has PM2.5 + PM10 only.
++const sensorsNoNo2 = {
++  'Lista stanowisk pomiarowych dla podanej stacji': (
++    sensors400 as unknown as {
++      'Lista stanowisk pomiarowych dla podanej stacji': {
++        'Wskaźnik - kod': string;
++      }[];
++    }
++  )['Lista stanowisk pomiarowych dla podanej stacji'].filter(
++    e => e['Wskaźnik - kod'] !== 'NO2',
++  ),
++};
++
++describe('AC-6: getDetail composes history + PM10/NO2', () => {
++  test('resolves history, pm10, no2 and fetches the PM2.5 series with size=100', async () => {
++    const { fetchImpl, calls } = makeFetch(KRAKOW_ROUTES);
++    const detail = await createStationSource(
++      KRAKOW_STATION,
++      fetchImpl,
++    ).getDetail();
++
++    expect(detail.history.length).toBe(24);
++    expect(detail.history[0].at).toBe('2026-08-11 23:00:00'); // oldest
++    expect(detail.history[23].at).toBe('2026-08-12 22:00:00'); // newest
++    expect(detail.pm10).toBe(30);
++    expect(detail.no2).toBe(22);
++
++    const pm25Call = calls.find(u => u.includes('/data/getData/2752'));
++    expect(pm25Call).toContain('size=100');
++  });
++
++  test('missing NO2 sensor → no2 undefined, history + pm10 still present', async () => {
++    const { fetchImpl } = makeFetch({
++      '/station/sensors/400': sensorsNoNo2,
++      '/data/getData/2752': pm25_26,
++      '/data/getData/2750': pm10,
++    });
++    const detail = await createStationSource(
++      KRAKOW_STATION,
++      fetchImpl,
++    ).getDetail();
++
++    expect(detail.no2).toBeUndefined();
++    expect(detail.history.length).toBe(24);
++    expect(detail.pm10).toBe(30);
++  });
++});
++
++describe('AC-6b: per-pollutant failure isolation — getDetail never rejects', () => {
++  test('NO2 fetch rejects → no2 undefined, history + pm10 present', async () => {
++    const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2747']);
++    const source = createStationSource(KRAKOW_STATION, fetchImpl);
++    await expect(source.getDetail()).resolves.toEqual(
++      expect.objectContaining({ no2: undefined, pm10: 30 }),
++    );
++    const detail = await source.getDetail();
++    expect(detail.history.length).toBe(24);
++  });
++
++  test('PM2.5 fetch rejects → history: [], pm10/no2 present', async () => {
++    const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2752']);
++    const source = createStationSource(KRAKOW_STATION, fetchImpl);
++    const detail = await source.getDetail();
++    expect(detail.history).toEqual([]);
++    expect(detail.pm10).toBe(30);
++    expect(detail.no2).toBe(22);
++  });
++});
++
++describe('AC-6c: nearest source location fallback shares the resolved station', () => {
++  test('geo rejects → Kraków fallback station used by both getDetail and getCurrentReading', async () => {
++    const { fetchImpl } = makeFetch(KRAKOW_ROUTES);
++    const getCurrentPosition = jest.fn(async () => {
++      throw new Error('permission denied');
++    });
++    const denied: Geolocation = { getCurrentPosition };
++
++    const source = createNearestStationSource(denied, fetchImpl);
++    const detail = await source.getDetail();
++    expect(detail.history.length).toBe(24);
++
++    const reading = await source.getCurrentReading();
++    expect(reading.city).toBe('Kraków');
++    expect(reading.station).toBe('Aleja Krasińskiego · stacja GIOŚ');
++
++    // Station resolution (geo call) is memoized/shared across getDetail + getCurrentReading.
++    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/src/data/gios/source.ts b/src/data/gios/source.ts
+index b170600..e52cd6d 100644
+--- a/src/data/gios/source.ts
++++ b/src/data/gios/source.ts
+@@ -1,75 +1,159 @@
+-import type { AirQualitySource, Reading } from '../../core/air';
+-import { indexFromPm25 } from '../../core/air';
++import type { AirQualitySource, Reading, ReadingDetail } from '../../core/air';
++import { buildHistory, indexFromPm25 } from '../../core/air';
+ import {
+   nearestStation,
+   stationLabel,
+   type Geolocation,
+   type Station,
+ } from '../../core/geo';
+ import { GIOS_BASE, KRAKOW_STATION } from './constants';
+-import { findPm25SensorId, parseLatestPm25 } from './mappers';
++import {
++  findPm25SensorId,
++  findSensorId,
++  parseLatestPm25,
++  parseLatestValue,
++  parseSeries,
++} from './mappers';
+ import { fetchStations } from './stations';
+ 
++// getDetail is not yet part of the shared AirQualitySource interface (that
++// lands with Task 4's core change); until then, factories return this
++// intersection so callers can use getDetail without a cast.
++type SourceWithDetail = AirQualitySource & {
++  getDetail: () => Promise<ReadingDetail>;
++};
++
+ // Builds a Reading for one Station: sensors → PM2.5 sensor → latest value.
+ // Shared by the Kraków path and nearest-station resolution.
+ async function readStation(
+   station: Station,
+   fetchImpl: typeof fetch,
+ ): Promise<Reading> {
+   const sensors = await (
+     await fetchImpl(`${GIOS_BASE}/station/sensors/${station.id}`)
+   ).json();
+   const sensorId = findPm25SensorId(sensors);
+   const data = await (
+     await fetchImpl(`${GIOS_BASE}/data/getData/${sensorId}`)
+   ).json();
+   const { pm25, measuredAt } = parseLatestPm25(data);
+   return {
+     index: indexFromPm25(pm25),
+     pm25,
+     measuredAt,
+     city: station.city,
+     station: stationLabel(station),
+   };
+ }
+ 
++// Builds a ReadingDetail for one Station: 24h PM2.5 history plus latest
++// PM10/NO2. Each pollutant is resolved independently via Promise.allSettled
++// so one missing sensor or failed fetch never fails the whole detail — it
++// just leaves that field empty (history: [], pm10/no2: undefined).
++async function detailFor(
++  station: Station,
++  fetchImpl: typeof fetch,
++): Promise<ReadingDetail> {
++  const sensors = await (
++    await fetchImpl(`${GIOS_BASE}/station/sensors/${station.id}`)
++  ).json();
++  const pm25Id = findSensorId(sensors, 'PM2.5');
++  const pm10Id = findSensorId(sensors, 'PM10');
++  const no2Id = findSensorId(sensors, 'NO2');
++
++  const getSeries = async (id: number) =>
++    buildHistory(
++      parseSeries(
++        await (
++          await fetchImpl(`${GIOS_BASE}/data/getData/${id}?size=100`)
++        ).json(),
++      ),
++    );
++  const getLatest = async (id: number) =>
++    parseLatestValue(
++      await (await fetchImpl(`${GIOS_BASE}/data/getData/${id}`)).json(),
++    );
++
++  const [history, pm10, no2] = await Promise.allSettled([
++    pm25Id != null ? getSeries(pm25Id) : Promise.reject(new Error('no pm2.5')),
++    pm10Id != null ? getLatest(pm10Id) : Promise.reject(new Error('no pm10')),
++    no2Id != null ? getLatest(no2Id) : Promise.reject(new Error('no no2')),
++  ]);
++
++  return {
++    history: history.status === 'fulfilled' ? history.value : [],
++    pm10: pm10.status === 'fulfilled' ? pm10.value : undefined,
++    no2: no2.status === 'fulfilled' ? no2.value : undefined,
++  };
++}
++
+ // Kraków-only convenience source (spec 004): builds the reading for the fixed
+ // Kraków station. Nearest-by-location resolution goes through createNearestStationSource.
+ export function createGiosSource(
+   fetchImpl: typeof fetch = fetch,
+-): AirQualitySource {
+-  return { getCurrentReading: () => readStation(KRAKOW_STATION, fetchImpl) };
++): SourceWithDetail {
++  return {
++    getCurrentReading: () => readStation(KRAKOW_STATION, fetchImpl),
++    getDetail: () => detailFor(KRAKOW_STATION, fetchImpl),
++  };
+ }
+ 
+ // A source for one fixed Station — used by Miejsca favorites/preview. Reuses the
+ // same per-Station reading builder as the Kraków and nearest paths.
+ export function createStationSource(
+   station: Station,
+   fetchImpl: typeof fetch = fetch,
+-): AirQualitySource {
+-  return { getCurrentReading: () => readStation(station, fetchImpl) };
++): SourceWithDetail {
++  return {
++    getCurrentReading: () => readStation(station, fetchImpl),
++    getDetail: () => detailFor(station, fetchImpl),
++  };
+ }
+ 
+ // Resolves the station nearest the device, falling back to Kraków on ANY
+ // failure (permission denied, geo error, stations fetch, or reading error).
+ // The Kraków fallback is intentional and total; the __DEV__ log keeps a
+ // silent fallback debuggable (it's how the findAll-pagination bug surfaced).
++//
++// Station resolution is memoized (resolveStation) so getCurrentReading and
++// getDetail share ONE resolved station instead of each re-running geo +
++// fetchStations independently.
+ export function createNearestStationSource(
+   geo: Geolocation,
+   fetchImpl: typeof fetch = fetch,
+-): AirQualitySource {
++): SourceWithDetail {
++  let stationP: Promise<Station> | null = null;
++  const resolveStation = (): Promise<Station> => {
++    if (!stationP) {
++      stationP = (async () => {
++        try {
++          const { lat, lon } = await geo.getCurrentPosition();
++          const stations = await fetchStations(fetchImpl);
++          return nearestStation(lat, lon, stations);
++        } catch (e) {
++          if (__DEV__) {
++            console.warn('[nearest] location failed; using Kraków:', e);
++          }
++          return KRAKOW_STATION;
++        }
++      })();
++    }
++    return stationP;
++  };
++
+   return {
+     async getCurrentReading(): Promise<Reading> {
++      const station = await resolveStation();
+       try {
+-        const { lat, lon } = await geo.getCurrentPosition();
+-        const stations = await fetchStations(fetchImpl);
+-        return await readStation(nearestStation(lat, lon, stations), fetchImpl);
++        return await readStation(station, fetchImpl);
+       } catch (e) {
+         if (__DEV__) {
+-          console.warn('[nearest] location/reading failed; showing Kraków:', e);
++          console.warn('[nearest] reading failed; showing Kraków:', e);
+         }
+         return readStation(KRAKOW_STATION, fetchImpl);
+       }
+     },
++    getDetail: () =>
++      resolveStation().then(station => detailFor(station, fetchImpl)),
+   };
+ }
