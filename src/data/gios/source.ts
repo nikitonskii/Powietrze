@@ -59,10 +59,10 @@ async function getLatest(
 // Number.isFinite(value) — parseLatestValue returns `undefined` for an
 // all-null sensor, which settles FULFILLED (not rejected), so the finite
 // check (not just status==='fulfilled') is what filters it out.
-// `any`: sensorsJson is untyped GIOŚ JSON, the same boundary findSensorId
-// already narrows in mappers.ts — no new boundary introduced here.
+// sensorsJson is untyped GIOŚ JSON; `unknown` keeps the narrowing boundary in
+// mappers.ts (findSensorId) — no `any` introduced here.
 async function resolvePollutants(
-  sensorsJson: any,
+  sensorsJson: unknown,
   fetchImpl: typeof fetch,
 ): Promise<PollutantReading[]> {
   const settled = await Promise.allSettled(
@@ -82,9 +82,9 @@ async function resolvePollutants(
 }
 
 // Builds a ReadingDetail for one Station: 24h PM2.5 history plus the
-// catalog-ordered pollutant readings. history and pollutants are resolved
-// independently via Promise.allSettled so one missing/failed fetch never
-// fails the whole detail — it just leaves that field empty.
+// catalog-ordered pollutant readings. history and pollutants resolve
+// concurrently; a missing/failed PM2.5 fetch just leaves history empty
+// (resolvePollutants never rejects — it settles its own fetches internally).
 async function detailFor(
   station: Station,
   fetchImpl: typeof fetch,
@@ -103,15 +103,12 @@ async function detailFor(
       ),
     );
 
-  const [history, pollutants] = await Promise.allSettled([
-    pm25Id != null ? getSeries(pm25Id) : Promise.reject(new Error('no pm2.5')),
+  const [history, pollutants] = await Promise.all([
+    pm25Id != null ? getSeries(pm25Id).catch(() => []) : Promise.resolve([]),
     resolvePollutants(sensors, fetchImpl),
   ]);
 
-  return {
-    history: history.status === 'fulfilled' ? history.value : [],
-    pollutants: pollutants.status === 'fulfilled' ? pollutants.value : [],
-  };
+  return { history, pollutants };
 }
 
 // Kraków-only convenience source (spec 004): builds the reading for the fixed

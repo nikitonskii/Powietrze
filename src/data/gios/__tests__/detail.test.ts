@@ -132,7 +132,7 @@ describe('AC-3c: a present sensor with all-null getData is omitted (finite filte
   });
 });
 
-describe('AC-3: per-pollutant failure isolation — getDetail never rejects', () => {
+describe('AC-3 (regression: failure isolation) — getDetail never rejects', () => {
   test('NO2 fetch rejects → NO2 omitted, other pollutants + history present', async () => {
     const { fetchImpl } = makeFetch(KRAKOW_ROUTES, ['/data/getData/2747']);
     const source = createStationSource(KRAKOW_STATION, fetchImpl);
