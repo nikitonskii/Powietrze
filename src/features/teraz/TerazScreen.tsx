@@ -60,8 +60,7 @@ export function TerazScreen() {
             <HistoryChart history={detail.history} />
             <View style={styles.tiles}>
               <PollutantTiles
-                pm10={detail.pm10}
-                no2={detail.no2}
+                pollutants={detail.pollutants}
                 precision={settings.precision}
               />
             </View>

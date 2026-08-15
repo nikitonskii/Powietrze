@@ -1,4 +1,5 @@
 import { indexFromPm25 } from './index';
+import type { PollutantReading } from './pollutants';
 
 export interface HourPoint {
   at: string;
@@ -6,10 +7,12 @@ export interface HourPoint {
   index: number;
 }
 
+// history stays PM2.5-only; pollutants is the catalog-ordered list of every
+// measured pollutant the resolved station reports a finite current value
+// for (empty if none resolved). See spec 016.
 export interface ReadingDetail {
   history: HourPoint[];
-  pm10?: number;
-  no2?: number;
+  pollutants: PollutantReading[];
 }
 
 // Raw hourly points → chart series: drop nulls (negatives kept — rare GIOŚ

@@ -1,0 +1,19 @@
+{
+ "Lista danych pomiarowych": [
+  {
+   "Kod stanowiska": "MpKrakAlKras-C6H6-1g",
+   "Data": "2026-08-12 22:00:00",
+   "Wartość": 0.35
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-C6H6-1g",
+   "Data": "2026-08-12 21:00:00",
+   "Wartość": 0.31
+  },
+  {
+   "Kod stanowiska": "MpKrakAlKras-C6H6-1g",
+   "Data": "2026-08-12 20:00:00",
+   "Wartość": 0.28
+  }
+ ]
+}

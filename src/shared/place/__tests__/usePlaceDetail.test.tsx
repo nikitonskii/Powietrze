@@ -20,8 +20,10 @@ const READING: Reading = {
 
 const detail: ReadingDetail = {
   history: [{ at: 't', pm25: 5, index: 5 }],
-  pm10: 30,
-  no2: 22,
+  pollutants: [
+    { code: 'PM10', value: 30 },
+    { code: 'NO2', value: 22 },
+  ],
 };
 
 const wrap = (sfp: SourceForPlace) =>
