@@ -39,8 +39,9 @@ channels, and foreground/background display. New-Architecture compatible.
   the @notifee calls sit behind a data-layer adapter (a seam interface in core),
   so features never import @notifee directly.
 - **Morning-summary content is fixed at schedule time** (a local notification) —
-  it cannot show live air without a background fetch, so v1 content is generic
-  ("Poranny raport — sprawdź jakość powietrza w {city}"). Live-data content +
-  the threshold smog alert both require the deferred BGTaskScheduler work.
+  it cannot show live air (or the city, which the adapter can't access) without a
+  background fetch, so v1 content is generic ("Poranny raport — sprawdź dziś
+  jakość powietrza"). Live/city content + the threshold smog alert both require
+  the deferred BGTaskScheduler work.
 - iOS `Info.plist`/entitlements as @notifee's setup docs require (local
   notifications need no special entitlement; background monitoring later will).
