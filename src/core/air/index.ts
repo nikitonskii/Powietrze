@@ -31,6 +31,7 @@ export function formatFreshness(measuredAt: string, now: Date): string {
 }
 
 export * from './history';
+export * from './pollutants';
 
 import type { Scale, Precision } from '../settings';
 
@@ -57,6 +58,16 @@ export function usAqiFromPm25(pm25: number): number {
 export function formatConcentration(v: number, precision: Precision): string {
   if (!Number.isFinite(v)) return '—';
   return precision === 'Dokładna' ? v.toFixed(1) : String(Math.round(v));
+}
+
+// Tile formatting. For 0 < value < 1, ALWAYS 2 decimals (e.g. "0.35") so a real
+// sub-unit reading is never rounded away to "0". Otherwise defers to
+// formatConcentration(value, precision) — so value ≥ 1 keeps today's behavior
+// exactly, and negatives (rare GIOŚ artifacts) take that same path (not
+// special-cased). Non-finite → "—" via formatConcentration.
+export function formatPollutant(value: number, precision: Precision): string {
+  if (value > 0 && value < 1) return value.toFixed(2);
+  return formatConcentration(value, precision);
 }
 
 export function displayValue(

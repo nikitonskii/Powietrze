@@ -2,6 +2,7 @@ import {
   usAqiFromPm25,
   displayValue,
   formatConcentration,
+  formatPollutant,
   scaleLabel,
 } from '..';
 
@@ -48,4 +49,25 @@ test('AC-4b: scaleLabel', () => {
   expect(scaleLabel('CAQI')).toBe('');
   expect(scaleLabel('US AQI')).toBe('US AQI');
   expect(scaleLabel('µg/m³')).toBe('µg/m³');
+});
+
+test('AC-2 (spec 016): formatPollutant — sub-1 always 2dp, else formatConcentration', () => {
+  expect(formatPollutant(0.35, 'Przybliżona')).toBe('0.35');
+  expect(formatPollutant(0.35, 'Dokładna')).toBe('0.35');
+  expect(formatPollutant(0.999, 'Przybliżona')).toBe('1.00');
+  expect(formatPollutant(0, 'Przybliżona')).toBe('0');
+  expect(formatPollutant(0, 'Dokładna')).toBe(
+    formatConcentration(0, 'Dokładna'),
+  );
+  expect(formatPollutant(-0.35, 'Przybliżona')).toBe(
+    formatConcentration(-0.35, 'Przybliżona'),
+  );
+  expect(formatPollutant(-4.2, 'Dokładna')).toBe(
+    formatConcentration(-4.2, 'Dokładna'),
+  );
+  expect(formatPollutant(333, 'Przybliżona')).toBe('333');
+  expect(formatPollutant(13.1, 'Dokładna')).toBe('13.1');
+  expect(formatPollutant(13.1, 'Przybliżona')).toBe('13');
+  expect(formatPollutant(NaN, 'Przybliżona')).toBe('—');
+  expect(formatPollutant(Infinity, 'Dokładna')).toBe('—');
 });
