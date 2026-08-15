@@ -89,12 +89,13 @@ test('AC-20: choosing Dokładna persists precision', async () => {
   await waitFor(() => expect(s.saved.at(-1)?.precision).toBe('Dokładna'));
 });
 
-test('AC-8/AC-21: Wkrótce tags only on still-unwired rows (alert, threshold, quiet, morning)', async () => {
+test('AC-5: Wkrótce tags only on still-unwired rows (alert, threshold, quiet); morning is now live', async () => {
   await renderScreen(store());
-  for (const k of ['alert', 'threshold', 'quiet', 'morning']) {
+  for (const k of ['alert', 'threshold', 'quiet']) {
     expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
   }
   for (const k of [
+    'morning',
     'loc',
     'precision',
     'scale',
