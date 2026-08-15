@@ -31,3 +31,45 @@ export function formatFreshness(measuredAt: string, now: Date): string {
 }
 
 export * from './history';
+
+import type { Scale, Precision } from '../settings';
+
+const US_AQI_BANDS = [
+  { cLo: 0.0, cHi: 12.0, iLo: 0, iHi: 50 },
+  { cLo: 12.1, cHi: 35.4, iLo: 51, iHi: 100 },
+  { cLo: 35.5, cHi: 55.4, iLo: 101, iHi: 150 },
+  { cLo: 55.5, cHi: 150.4, iLo: 151, iHi: 200 },
+  { cLo: 150.5, cHi: 250.4, iLo: 201, iHi: 300 },
+  { cLo: 250.5, cHi: 350.4, iLo: 301, iHi: 400 },
+  { cLo: 350.5, cHi: 500.4, iLo: 401, iHi: 500 },
+] as const;
+
+// EPA PM2.5 → US AQI. Discontinuous table, piecewise-linear per band. Truncate
+// the concentration to 0.1 µg/m³ (EPA) so the inter-band gaps never yield NaN.
+export function usAqiFromPm25(pm25: number): number {
+  if (!Number.isFinite(pm25) || pm25 <= 0) return 0;
+  const c = Math.floor(pm25 * 10) / 10;
+  if (c >= 500.4) return 500;
+  const b = US_AQI_BANDS.find(x => c <= x.cHi)!;
+  return Math.round(((b.iHi - b.iLo) / (b.cHi - b.cLo)) * (c - b.cLo) + b.iLo);
+}
+
+export function formatConcentration(v: number, precision: Precision): string {
+  if (!Number.isFinite(v)) return '—';
+  return precision === 'Dokładna' ? v.toFixed(1) : String(Math.round(v));
+}
+
+export function displayValue(
+  index: number,
+  pm25: number,
+  scale: Scale,
+  precision: Precision,
+): string {
+  if (scale === 'US AQI') return String(usAqiFromPm25(pm25));
+  if (scale === 'µg/m³') return formatConcentration(pm25, precision);
+  return String(index); // CAQI
+}
+
+export function scaleLabel(scale: Scale): string {
+  return scale === 'CAQI' ? '' : scale;
+}
