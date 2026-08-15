@@ -6,6 +6,7 @@ import {
   createNearestStationSource,
   createStationSource,
   fetchStations,
+  KRAKOW_STATION,
 } from './src/data/gios';
 import { createDeviceGeolocation } from './src/data/location';
 import { createAsyncStorageFavoritesStore } from './src/data/favorites';
@@ -47,7 +48,7 @@ function App() {
         <PlaceSourceProvider sourceForPlace={sourceForPlace}>
           <FavoritesProvider store={favoritesStore}>
             <SettingsProvider store={settingsStore}>
-              <ActivePlaceProvider>
+              <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
                 <SafeAreaProvider>
                   <StatusBar barStyle="light-content" />
                   <AppNavigator />

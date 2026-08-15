@@ -14,6 +14,8 @@ import {
   StationsProvider,
   type SourceForPlace,
 } from '../../../shared/place';
+import { SettingsProvider } from '../../../shared/settings';
+import { DEFAULT_SETTINGS, type SettingsStore } from '../../../core/settings';
 import type { FavoritesStore } from '../../../core/places';
 import type { Station } from '../../../core/geo';
 import type { Reading } from '../../../core/air';
@@ -59,17 +61,23 @@ function makeStore(
     },
   };
 }
+const settingsStore: SettingsStore = {
+  load: async () => DEFAULT_SETTINGS,
+  save: async () => {},
+};
 const renderScreen = (store: FavoritesStore) =>
   render(
-    <StationsProvider stations={S}>
-      <PlaceSourceProvider sourceForPlace={sfp}>
-        <FavoritesProvider store={store}>
-          <ActivePlaceProvider>
-            <MiejscaScreen />
-          </ActivePlaceProvider>
-        </FavoritesProvider>
-      </PlaceSourceProvider>
-    </StationsProvider>,
+    <SettingsProvider store={settingsStore}>
+      <StationsProvider stations={S}>
+        <PlaceSourceProvider sourceForPlace={sfp}>
+          <FavoritesProvider store={store}>
+            <ActivePlaceProvider>
+              <MiejscaScreen />
+            </ActivePlaceProvider>
+          </FavoritesProvider>
+        </PlaceSourceProvider>
+      </StationsProvider>
+    </SettingsProvider>,
   );
 
 test('AC 006-8: default shows the pinned location row and the empty hint', async () => {
@@ -107,15 +115,17 @@ test('AC 006-8 / AC 008-4: favorites render live, tap navigates, ✕ persists �
     // GestureHandlerRootView is required because the favorites branch renders
     // DraggableFavorites → GestureDetector.
     <GestureHandlerRootView>
-      <StationsProvider stations={S}>
-        <PlaceSourceProvider sourceForPlace={countingSfp}>
-          <FavoritesProvider store={store}>
-            <ActivePlaceProvider>
-              <MiejscaScreen />
-            </ActivePlaceProvider>
-          </FavoritesProvider>
-        </PlaceSourceProvider>
-      </StationsProvider>
+      <SettingsProvider store={settingsStore}>
+        <StationsProvider stations={S}>
+          <PlaceSourceProvider sourceForPlace={countingSfp}>
+            <FavoritesProvider store={store}>
+              <ActivePlaceProvider>
+                <MiejscaScreen />
+              </ActivePlaceProvider>
+            </FavoritesProvider>
+          </PlaceSourceProvider>
+        </StationsProvider>
+      </SettingsProvider>
     </GestureHandlerRootView>,
   );
   // one row per favorite (each with a ✕ delete affordance)
@@ -156,15 +166,17 @@ test('AC 007-4: results capped at 8, only shown rows fetch, preview navigates, s
     },
   });
   await render(
-    <StationsProvider stations={many}>
-      <PlaceSourceProvider sourceForPlace={countingSfp}>
-        <FavoritesProvider store={store}>
-          <ActivePlaceProvider>
-            <MiejscaScreen />
-          </ActivePlaceProvider>
-        </FavoritesProvider>
-      </PlaceSourceProvider>
-    </StationsProvider>,
+    <SettingsProvider store={settingsStore}>
+      <StationsProvider stations={many}>
+        <PlaceSourceProvider sourceForPlace={countingSfp}>
+          <FavoritesProvider store={store}>
+            <ActivePlaceProvider>
+              <MiejscaScreen />
+            </ActivePlaceProvider>
+          </FavoritesProvider>
+        </PlaceSourceProvider>
+      </StationsProvider>
+    </SettingsProvider>,
   );
   fireEvent.changeText(screen.getByTestId('search-input'), 'testowo');
 

@@ -48,7 +48,7 @@ test('AC-17: header + four section labels in order', async () => {
   }
 });
 
-test('AC-18: exact Polish copy for every row + footer, chevron dropped', async () => {
+test('AC-18: exact Polish copy for every row + footer, widget row removed', async () => {
   await renderScreen(store());
   for (const t of [
     'Użyj mojej lokalizacji',
@@ -59,8 +59,6 @@ test('AC-18: exact Polish copy for every row + footer, chevron dropped', async (
     '22:00 – 07:00',
     'Poranne podsumowanie',
     '07:30',
-    'Stacja widżetu',
-    'Automatyczna',
     'Skala indeksu',
     'Źródło',
     'GIOŚ',
@@ -72,6 +70,9 @@ test('AC-18: exact Polish copy for every row + footer, chevron dropped', async (
     expect(screen.getByText(t)).toBeTruthy();
   }
   expect(screen.queryByText('Automatyczna ›')).toBeNull();
+  expect(screen.queryByText('Stacja widżetu')).toBeNull();
+  expect(screen.queryByText('Automatyczna')).toBeNull();
+  expect(screen.queryByTestId('setting-widget')).toBeNull();
 });
 
 test('AC-19: toggling Alert smogowy persists alert inverted', async () => {
@@ -88,22 +89,21 @@ test('AC-20: choosing Dokładna persists precision', async () => {
   await waitFor(() => expect(s.saved.at(-1)?.precision).toBe('Dokładna'));
 });
 
-test('AC-21: Wkrótce tags on unwired/placeholder rows only', async () => {
+test('AC-8/AC-21: Wkrótce tags only on still-unwired rows (alert, threshold, quiet, morning)', async () => {
   await renderScreen(store());
+  for (const k of ['alert', 'threshold', 'quiet', 'morning']) {
+    expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
+  }
   for (const k of [
     'loc',
     'precision',
-    'alert',
-    'threshold',
-    'quiet',
-    'morning',
-    'widget',
     'scale',
+    'widget',
+    'source',
+    'refresh',
   ]) {
-    expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
+    expect(screen.queryByTestId(`wkrotce-${k}`)).toBeNull();
   }
-  expect(screen.queryByTestId('wkrotce-source')).toBeNull();
-  expect(screen.queryByTestId('wkrotce-refresh')).toBeNull();
 });
 
 test('AC-22: preloaded non-default store hydrates the controls', async () => {

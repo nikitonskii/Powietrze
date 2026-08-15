@@ -1,21 +1,41 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../tokens';
+import type { Precision } from '../../core/settings';
+import { formatConcentration } from '../../core/air';
 
-function Tile({ label, value }: { label: string; value: number | undefined }) {
+function Tile({
+  label,
+  value,
+  precision,
+}: {
+  label: string;
+  value: number | undefined;
+  precision: Precision;
+}) {
   return (
     <View style={styles.tile}>
       <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value ?? '—'}</Text>
+      <Text style={styles.value}>
+        {value === undefined ? '—' : formatConcentration(value, precision)}
+      </Text>
       <Text style={styles.unit}>µg/m³</Text>
     </View>
   );
 }
 
-export function PollutantTiles({ pm10, no2 }: { pm10?: number; no2?: number }) {
+export function PollutantTiles({
+  pm10,
+  no2,
+  precision,
+}: {
+  pm10?: number;
+  no2?: number;
+  precision: Precision;
+}) {
   return (
     <View style={styles.row}>
-      <Tile label="PM10" value={pm10} />
-      <Tile label="NO₂" value={no2} />
+      <Tile label="PM10" value={pm10} precision={precision} />
+      <Tile label="NO₂" value={no2} precision={precision} />
     </View>
   );
 }

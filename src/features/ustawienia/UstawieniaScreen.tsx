@@ -15,6 +15,7 @@ function ToggleRow({
   keyName,
   title,
   subtitle,
+  soon,
   testID,
   value,
   onValueChange,
@@ -22,6 +23,7 @@ function ToggleRow({
   keyName: string;
   title: string;
   subtitle?: string;
+  soon?: boolean;
   testID: string;
   value: boolean;
   onValueChange: (next: boolean) => void;
@@ -31,7 +33,7 @@ function ToggleRow({
       keyName={keyName}
       title={title}
       subtitle={subtitle}
-      soon
+      soon={soon}
       trailing={
         <Toggle testID={testID} value={value} onValueChange={onValueChange} />
       }
@@ -76,7 +78,7 @@ function LokalizacjaGroup({ settings, set }: GroupProps) {
         value={settings.loc}
         onValueChange={v => set('loc', v)}
       />
-      <StackedRow keyName="precision" title="Dokładność" soon>
+      <StackedRow keyName="precision" title="Dokładność">
         <SegmentedControl
           testID="seg-precision"
           options={['Przybliżona', 'Dokładna'] as const}
@@ -94,6 +96,7 @@ function PowiadomieniaGroup({ settings, set }: GroupProps) {
       <ToggleRow
         keyName="alert"
         title="Alert smogowy"
+        soon
         testID="toggle-alert"
         value={settings.alert}
         onValueChange={v => set('alert', v)}
@@ -115,6 +118,7 @@ function PowiadomieniaGroup({ settings, set }: GroupProps) {
         keyName="morning"
         title="Poranne podsumowanie"
         subtitle="07:30"
+        soon
         testID="toggle-morning"
         value={settings.morning}
         onValueChange={v => set('morning', v)}
@@ -126,13 +130,7 @@ function PowiadomieniaGroup({ settings, set }: GroupProps) {
 function WygladGroup({ settings, set }: GroupProps) {
   return (
     <SettingsGroup label="WIDŻET I WYGLĄD">
-      <SettingRow
-        keyName="widget"
-        title="Stacja widżetu"
-        soon
-        value="Automatyczna"
-      />
-      <StackedRow keyName="scale" title="Skala indeksu" soon>
+      <StackedRow keyName="scale" title="Skala indeksu">
         <SegmentedControl
           testID="seg-scale"
           options={['CAQI', 'US AQI', 'µg/m³'] as const}

@@ -12,8 +12,15 @@ import {
   useActivePlace,
   type SourceForPlace,
 } from '../../../shared/place';
+import { SettingsProvider } from '../../../shared/settings';
+import { DEFAULT_SETTINGS, type SettingsStore } from '../../../core/settings';
 import type { Reading } from '../../../core/air';
 import type { Station } from '../../../core/geo';
+
+const settingsStore: SettingsStore = {
+  load: async () => DEFAULT_SETTINGS,
+  save: async () => {},
+};
 
 const warsaw: Station = {
   id: 530,
@@ -54,12 +61,14 @@ function Picker() {
 
 test('AC 006-7: Teraz renders the active place + eyebrow (location → station)', async () => {
   await render(
-    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
-      <ActivePlaceProvider>
-        <TerazScreen />
-        <Picker />
-      </ActivePlaceProvider>
-    </PlaceSourceProvider>,
+    <SettingsProvider store={settingsStore}>
+      <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+        <ActivePlaceProvider>
+          <TerazScreen />
+          <Picker />
+        </ActivePlaceProvider>
+      </PlaceSourceProvider>
+    </SettingsProvider>,
   );
   expect(await screen.findByText('Kraków')).toBeTruthy();
   expect(screen.getByText('TWOJA LOKALIZACJA')).toBeTruthy();

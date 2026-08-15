@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ActivePlace } from '../../core/places';
+import { displayValue } from '../../core/air';
 import { scene, trendArrow } from '../../core/scene';
 import { usePlaceReading } from '../../shared/place';
+import { useSettings } from '../../shared/settings';
 import { Text } from '../../shared/ui/Text';
 import { colors, spacing } from '../../shared/tokens';
 
@@ -25,6 +27,7 @@ export function PlaceRow({
   testID?: string;
 }) {
   const { status, reading } = usePlaceReading(place);
+  const { settings } = useSettings();
   return (
     <Pressable testID={testID} style={styles.row} onPress={onPress}>
       <View style={styles.left}>
@@ -56,7 +59,12 @@ export function PlaceRow({
           color={scene(reading.index).key}
           style={styles.index}
         >
-          {String(reading.index)}
+          {displayValue(
+            reading.index,
+            reading.pm25,
+            settings.scale,
+            settings.precision,
+          )}
         </Text>
       ) : status === 'stale' ? (
         <Text variant="station" color={colors.text.dim}>

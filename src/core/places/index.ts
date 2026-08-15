@@ -63,3 +63,10 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
   next.splice(to, 0, item);
   return next;
 }
+
+export function defaultPlace(
+  loc: boolean,
+  defaultStation: Station,
+): ActivePlace {
+  return loc ? LOCATION_PLACE : { kind: 'station', station: defaultStation };
+}

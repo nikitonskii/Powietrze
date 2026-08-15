@@ -11,8 +11,15 @@ import {
   PlaceSourceProvider,
   type SourceForPlace,
 } from '../../../shared/place';
+import { SettingsProvider } from '../../../shared/settings';
+import {
+  DEFAULT_SETTINGS,
+  type Settings,
+  type SettingsStore,
+} from '../../../core/settings';
 import type { Station } from '../../../core/geo';
 import type { Reading } from '../../../core/air';
+import { displayValue } from '../../../core/air';
 import { scene, trendArrow } from '../../../core/scene';
 import { colorOf } from '../../../shared/test/colorOf';
 
@@ -31,21 +38,32 @@ const reading: Reading = {
   station: 'y',
 };
 
+const settingsStore = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
+  load: async () => s,
+  save: async () => {},
+});
+
 const wrap = (
   sfp: SourceForPlace,
-  opts: { onPress?: () => void; trailing?: React.ReactNode } = {},
+  opts: {
+    onPress?: () => void;
+    trailing?: React.ReactNode;
+    settings?: Settings;
+  } = {},
 ) =>
   render(
-    <PlaceSourceProvider sourceForPlace={sfp}>
-      <PlaceRow
-        place={{ kind: 'station', station: w }}
-        title="Warszawa"
-        subtitle="Al. Niepodległości"
-        onPress={opts.onPress ?? (() => {})}
-        trailing={opts.trailing}
-        testID="row-530"
-      />
-    </PlaceSourceProvider>,
+    <SettingsProvider store={settingsStore(opts.settings)}>
+      <PlaceSourceProvider sourceForPlace={sfp}>
+        <PlaceRow
+          place={{ kind: 'station', station: w }}
+          title="Warszawa"
+          subtitle="Al. Niepodległości"
+          onPress={opts.onPress ?? (() => {})}
+          trailing={opts.trailing}
+          testID="row-530"
+        />
+      </PlaceSourceProvider>
+    </SettingsProvider>,
   );
 
 test('AC 007-2: resolving source renders the live index + trailing; row press fires onPress', async () => {
@@ -102,4 +120,18 @@ test('AC 013-2: no band+trend line when the row has no reading (stale)', async (
   }));
   await screen.findByText('brak danych');
   expect(screen.queryByTestId('trend-42')).toBeNull();
+});
+
+test('AC-5: the big number honors settings.scale/precision, color stays scene(index).key', async () => {
+  const settings: Settings = {
+    ...DEFAULT_SETTINGS,
+    scale: 'µg/m³',
+    precision: 'Dokładna',
+  };
+  await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) }), {
+    settings,
+  });
+  const expected = displayValue(42, 43, 'µg/m³', 'Dokładna'); // '43.0'
+  const el = await screen.findByText(expected);
+  expect(colorOf(el)).toBe(scene(42).key);
 });

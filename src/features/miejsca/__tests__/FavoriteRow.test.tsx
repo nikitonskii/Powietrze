@@ -4,6 +4,8 @@ import {
   PlaceSourceProvider,
   type SourceForPlace,
 } from '../../../shared/place';
+import { SettingsProvider } from '../../../shared/settings';
+import { DEFAULT_SETTINGS } from '../../../core/settings';
 import type { Station } from '../../../core/geo';
 import type { Reading } from '../../../core/air';
 
@@ -29,9 +31,13 @@ test('AC 008-3: renders the row + a Usuń delete action that calls onDelete', as
   const onOpen = jest.fn();
   const onDelete = jest.fn();
   await render(
-    <PlaceSourceProvider sourceForPlace={sfp}>
-      <FavoriteRow station={w} onOpen={onOpen} onDelete={onDelete} />
-    </PlaceSourceProvider>,
+    <SettingsProvider
+      store={{ load: async () => DEFAULT_SETTINGS, save: async () => {} }}
+    >
+      <PlaceSourceProvider sourceForPlace={sfp}>
+        <FavoriteRow station={w} onOpen={onOpen} onDelete={onDelete} />
+      </PlaceSourceProvider>
+    </SettingsProvider>,
   );
   expect(await screen.findByText('Warszawa')).toBeTruthy();
   // The swipe action is rendered in the tree (off-screen); pressing it deletes.
