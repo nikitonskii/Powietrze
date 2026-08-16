@@ -3,7 +3,9 @@ import {
   screen,
   waitFor,
   fireEvent,
+  act,
 } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 import realStations from '../../../core/geo/__fixtures__/stations.json';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MiejscaScreen } from '../MiejscaScreen';
@@ -47,34 +49,17 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
-// The RN jest preset's RefreshControl mock renders a bare host node and
-// drops every prop (including testID), so the real one is unqueryable.
-// Forward the props we need to assert wiring (testID/refreshing/onRefresh).
-jest.mock(
-  'react-native/Libraries/Components/RefreshControl/RefreshControl',
-  () => {
-    // Require the View submodule directly (already mocked by the RN jest
-    // preset) — going through the 'react-native' index would re-import this
-    // very module and create a circular reference.
-    const View = require('react-native/Libraries/Components/View/View').default;
-    function RefreshControl(props: {
-      testID?: string;
-      refreshing: boolean;
-      onRefresh?: () => void;
-    }) {
-      return (
-        <View
-          testID={props.testID}
-          accessibilityState={{ busy: props.refreshing }}
-          onPress={props.onRefresh}
-        />
-      );
+// The RN jest preset's RefreshControl mock stores the last-mounted instance on
+// `RefreshControl.latestRef`, exposing the exact props the screen passed —
+// used below to assert the pull-to-refresh wiring without any local mock.
+const refreshControlProps = () =>
+  (
+    RefreshControl as unknown as {
+      latestRef: {
+        props: { testID?: string; refreshing: boolean; onRefresh: () => void };
+      };
     }
-    // react-native/index.js reads `require(path).default` directly (no
-    // babel interop), so the mock must expose an explicit default export.
-    return { __esModule: true, default: RefreshControl };
-  },
-);
+  ).latestRef.props;
 
 const w = S.find(s => s.id === 530)!; // Warszawa
 const g = S.find(s => s.id === 706)!; // Gdańsk
@@ -133,13 +118,14 @@ test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh(
   // Initial mount: the pinned location row AND ActivePlaceProvider's active
   // reading both fetch the location place once.
   await waitFor(() => expect(calls).toBe(2));
-  expect(
-    screen.getByTestId('refresh-control').props.accessibilityState.busy,
-  ).toBe(false);
+  expect(refreshControlProps().testID).toBe('refresh-control');
+  expect(refreshControlProps().refreshing).toBe(false);
 
-  // Pull-to-refresh: the RefreshControl's onRefresh is useRefresh().refresh —
-  // firing it re-triggers both fetches (proves the wiring).
-  await fireEvent.press(screen.getByTestId('refresh-control'));
+  // Pull-to-refresh: onRefresh is useRefresh().refresh — invoking it (as a pull
+  // gesture would) re-triggers both fetches (proves the wiring).
+  await act(async () => {
+    refreshControlProps().onRefresh();
+  });
   expect(calls).toBe(4);
 });
 
