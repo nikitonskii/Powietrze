@@ -1,0 +1,1383 @@
+### commits
+c5d8116 feat(ustawienia): un-tag alert/threshold/quiet; alert default opt-in (AC-5)
+f0e1659 fix(alert): split SmogAlertProvider test + cover stale-not-evaluated (S4) (review)
+87694d2 feat(alert): SmogAlertProvider — per-place threshold-crossing alerts (AC-4)
+ab59b43 feat(notifications): Notifier.notifySmog via @notifee displayNotification (AC-3)
+8296f84 feat(core): smog alert decision + quiet hours (AC-1, AC-2)
+8c31ca5 docs: implementation plan for m-smog-alert (foreground slice)
+3cb7283 docs: rework spec 019 smog alert (critic SHIP-WITH-FIXES folded)
+670639b docs: spec 019 smog alert (threshold crossing + quiet hours, foreground slice)
+
+### stat
+ App.tsx                                            |  15 +-
+ docs/specs/019-smog-alert.md                       | 147 +++++++++++++++++
+ docs/superpowers/plans/2026-08-16-m-smog-alert.md  | 122 ++++++++++++++
+ jest.config.js                                     |   7 +
+ jest.setup.js                                      |   1 +
+ src/core/alert/__tests__/decision.test.ts          | 130 +++++++++++++++
+ src/core/alert/index.ts                            |  28 ++++
+ src/core/notifications/index.ts                    |   1 +
+ src/core/settings/__tests__/settings.test.ts       |   9 +-
+ src/core/settings/index.ts                         |   2 +-
+ src/data/notifications/__tests__/notifier.test.ts  |  20 +++
+ src/data/notifications/index.ts                    |  16 ++
+ src/features/ustawienia/UstawieniaScreen.tsx       |  10 +-
+ .../ustawienia/__tests__/UstawieniaScreen.test.tsx |  10 +-
+ src/shared/alert/__tests__/crossing.test.tsx       | 175 +++++++++++++++++++++
+ src/shared/alert/__tests__/harness.tsx             | 174 ++++++++++++++++++++
+ src/shared/alert/__tests__/perPlace.test.tsx       |  33 ++++
+ src/shared/alert/__tests__/permission.test.tsx     |  27 ++++
+ src/shared/alert/index.tsx                         |  71 +++++++++
+ .../__tests__/NotificationsProvider.test.tsx       |   1 +
+ 20 files changed, 977 insertions(+), 22 deletions(-)
+
+### diff
+diff --git a/App.tsx b/App.tsx
+index 19f74a6..4de5319 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -18,16 +18,17 @@ import type { Station } from './src/core/geo';
+ import {
+   PlaceSourceProvider,
+   StationsProvider,
+   FavoritesProvider,
+   ActivePlaceProvider,
+ } from './src/shared/place';
+ import { SettingsProvider } from './src/shared/settings';
+ import { NotificationsProvider } from './src/shared/notifications';
++import { SmogAlertProvider } from './src/shared/alert';
+ import { WidgetSyncProvider } from './src/shared/widget';
+ import { RefreshProvider } from './src/shared/refresh';
+ import { AppNavigator } from './src/app/AppNavigator';
+ 
+ // Data-layer instances built once and injected (features never call data directly).
+ const nearest = createNearestStationSource(createDeviceGeolocation(), fetch);
+ const sourceForPlace = (p: ActivePlace) =>
+   p.kind === 'location' ? nearest : createStationSource(p.station, fetch);
+@@ -53,22 +54,24 @@ function App() {
+     <GestureHandlerRootView style={{ flex: 1 }}>
+       <RefreshProvider>
+         <StationsProvider stations={stations}>
+           <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+             <FavoritesProvider store={favoritesStore}>
+               <SettingsProvider store={settingsStore}>
+                 <NotificationsProvider notifier={notifier}>
+                   <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
+-                    <WidgetSyncProvider sync={widgetSync}>
+-                      <SafeAreaProvider>
+-                        <StatusBar barStyle="light-content" />
+-                        <AppNavigator />
+-                      </SafeAreaProvider>
+-                    </WidgetSyncProvider>
++                    <SmogAlertProvider notifier={notifier}>
++                      <WidgetSyncProvider sync={widgetSync}>
++                        <SafeAreaProvider>
++                          <StatusBar barStyle="light-content" />
++                          <AppNavigator />
++                        </SafeAreaProvider>
++                      </WidgetSyncProvider>
++                    </SmogAlertProvider>
+                   </ActivePlaceProvider>
+                 </NotificationsProvider>
+               </SettingsProvider>
+             </FavoritesProvider>
+           </PlaceSourceProvider>
+         </StationsProvider>
+       </RefreshProvider>
+     </GestureHandlerRootView>
+diff --git a/docs/specs/019-smog-alert.md b/docs/specs/019-smog-alert.md
+new file mode 100644
+index 0000000..90388b3
+--- /dev/null
++++ b/docs/specs/019-smog-alert.md
+@@ -0,0 +1,147 @@
++# Spec 019: Smog alert — threshold crossing + quiet hours (foreground slice)
++
++**Status:** draft
++**Milestone:** M-smog-alert (foreground slice) · **Depends on:** @notifee (ADR-013, already installed) · spec 015 (Notifier seam)
++**Sources:** `design/README.md` §3 POWIADOMIENIA + advice copy (line 74); the deferred quiet-hours from spec 015 (critic B1) lands here.
++**Critic:** SHIP-WITH-FIXES — B1 + S1–S4 + M1–M4 folded in. `.superpowers/sdd/critic-019.md`.
++
++## Scope
++Give the persisted `alert` (bool) + `threshold` (CAQI index, [25,200]) settings a consumer, and
++honor a fixed quiet-hours window: when a fetched reading's **CAQI index ≥ threshold**, `alert` is
++on, and it's **not** quiet hours (22:00–07:00 local), fire a local smog notification — **deduped
++per place** (once per rising crossing, not on every reading while air stays bad). Un-tags the
++`alert`, `threshold`, and `quiet` rows (all three currently show "Wkrótce"). **`alert` default
++changes `true → false`** (opt-in; see M2 below) so the feature never prompts for notifications
++unprompted at launch.
++
++## Non-goals
++- **Closed-app / background alerts** — needs BGTaskScheduler; DEFERRED (v1 evaluates each reading
++  fetched while the app runs). The same `smogAlertDecision` evaluator runs in the background once
++  the gate lands.
++- **User-configurable quiet hours** — fixed 22:00–07:00 (no new Settings field / picker).
++- **Per-pollutant thresholds / forecast** — single CAQI-index threshold only.
++
++## Design
++
++### Core — pure alert logic (`src/core/alert/index.ts`, new)
++```ts
++export const QUIET_START_HOUR = 22;
++export const QUIET_END_HOUR = 7;
++export function isQuietHour(now: Date): boolean; // local hour >= 22 || < 7
++
++// Pure crossing decision. `prev.wasAbove` = whether the previous evaluated reading (FOR THIS PLACE)
++// was at/above threshold. Returns whether to fire AND the next wasAbove. Precedence off → quiet → normal:
++//   - alert off   → { fire:false, wasAbove:false }   (reset so re-enabling re-arms)
++//   - quiet hours → { fire:false, wasAbove:prev.wasAbove } (suppress + FREEZE, so a crossing that
++//                   began at e.g. 06:59 fires once quiet ends)
++//   - else        → fire = index >= threshold && !prev.wasAbove (rising edge);
++//                   next wasAbove = index >= threshold.
++export interface SmogInput { index: number; threshold: number; alertOn: boolean; now: Date }
++export interface SmogDecision { fire: boolean; wasAbove: boolean }
++export function smogAlertDecision(prev: { wasAbove: boolean }, input: SmogInput): SmogDecision;
++```
++
++### Core — extend the Notifier seam (`src/core/notifications/index.ts`)
++```ts
++export interface Notifier {
++  requestPermission(): Promise<boolean>;
++  scheduleMorning(time?: string): Promise<void>;
++  cancelMorning(): Promise<void>;
++  notifySmog(index: number): Promise<void>;   // NEW: immediate local smog notification
++}
++```
++**S1 — every `Notifier` double must add `notifySmog`:** the real adapter `createNotifeeNotifier`
++(`src/data/notifications/index.ts`) AND the hand-rolled `fakeNotifier` in
++`src/shared/notifications/__tests__/NotificationsProvider.test.tsx` (else typecheck reds). Any new
++test fake implements it too.
++
++### Data — @notifee adapter (`src/data/notifications`)
++`notifySmog(index)`: `createChannel` first (M3, mirrors `scheduleMorning`), then
++`notifee.displayNotification({ title: 'Alert smogowy', body: '<approved copy>', android:{ channelId }})`.
++**M4 — body is the approved design string** `"Ogranicz długie i intensywne aktywności na zewnątrz."`
++(`design/README.md:74`), not invented copy. `displayNotification` is core @notifee (already
++installed) — **no new native gate**. Add `displayNotification` to the @notifee jest mock
++(`jest.setup.js`).
++
++### Shared — SmogAlertProvider (`src/shared/alert/index.tsx`, new)
++```ts
++export function SmogAlertProvider(props: {
++  notifier: Notifier;
++  now?: () => Date;                    // S3: injectable clock (defaults () => new Date()) for the quiet test
++  children: React.ReactNode;
++}): JSX.Element;
++```
++- Reads the active place + reading via `useActivePlace` (its `placeKey`/`status`/`reading`) and
++  `alert`/`threshold` + `set` via `useSettings`.
++- **S4 — only `status === 'ready'`** readings are evaluated (a `stale` reading, though it carries a
++  value, is NOT evaluated — it must not mis-drive `wasAbove`).
++- **S2 — per-place dedup:** a `useRef<Map<string, boolean>>` keyed by `placeKey` (`location` |
++  `station:{id}`). Each ready reading: `const prev = map.get(placeKey) ?? false;` compute
++  `smogAlertDecision(prev, {...})`; `map.set(placeKey, next.wasAbove)`; on `fire` → `notifier.notifySmog(reading.index)`.
++- **Permission (mirrors NotificationsProvider):** on `alert === true` (mount + toggle) →
++  `requestPermission()`; denied → `set('alert', false)` (persisted revert). With `alert` default
++  **false** (M2), a launch prompt only ever appears right after the user enables the toggle — never
++  unprompted.
++- Mounted under ActivePlace + Settings in `App.tsx`, `notifier={createNotifeeNotifier()}` (reuse the same instance if convenient).
++
++### Core settings — `alert` default (`src/core/settings/index.ts`)
++**M2 — `DEFAULT_SETTINGS.alert: true → false`** (opt-in, consistent with `morning: false`; avoids an
++unprompted first-launch permission dialog). Update `mergeSettings`/DEFAULT tests that assert the default.
++
++### Ustawienia (`src/features/ustawienia/UstawieniaScreen.tsx`)
++Drop `soon` on **all three**: `alert` (Alert smogowy), `threshold` (Próg alertu), `quiet`
++(Godziny ciszy, shows the fixed 22:00–07:00 the alert honors). (B1)
++
++### Native gate (deferred)
++BGTaskScheduler wakes the app → runs the same `smogAlertDecision` against a background fetch →
++fires `notifySmog` when closed. Needs persisted per-place last-alerted state (vs the in-memory Map)
+++ background plumbing.
++
++## Behavior — Acceptance Criteria
++
++### Core (pure)
++- **AC-1** — `isQuietHour`: true at 22:00, 23:30, 00:00, 06:59; false at 07:00, 12:00, 21:59.
++- **AC-2** — `smogAlertDecision` table: rising edge → `{true,true}`; staying above → `{false,true}`;
++  dropping below → `{false,false}`; re-cross after drop → fires again; alert off → `{false,false}`
++  regardless of index; quiet + above → `{false,prev}`; `index === threshold` counts as above.
++- **AC-2b (M1)** — composed: a crossing that begins during quiet (prev `false`) stays `{false,false}`
++  through quiet, then fires exactly once on the first non-quiet evaluation while still above.
++
++### Data (adapter, @notifee mocked)
++- **AC-3** — `notifySmog(index)` calls `createChannel` then `notifee.displayNotification` with the
++  approved body + the channel id; the other Notifier methods (requestPermission mapping, morning) unchanged.
++
++### Integration
++- **AC-4** — `SmogAlertProvider` (fake `Notifier` + injected `now` + fake active place/settings):
++  fires `notifySmog(index)` once on a rising crossing; NOT while staying above; NOT below threshold,
++  when `alert` off, during quiet hours (injected `now`), or while `status !== 'ready'` (loading/stale);
++  re-fires on a new crossing after dropping below. **Per-place (S2):** place A above fires; switching
++  to place B and back to A (still above) does NOT re-fire A; a distinct place B above fires on its own.
++  Toggling `alert` on → `requestPermission`; denied → `set('alert', false)`.
++
++### Ustawienia
++- **AC-5 (B1)** — `alert`, `threshold`, `quiet` rows show NO `Wkrótce` (`wkrotce-alert/threshold/quiet`
++  all absent). **Update the existing spec-014/018 tag test:** move all three from the present list to
++  the absent list (nothing should remain in the "present Wkrótce" set).
++
++### Manual
++- **AC-6** — *(journal)* sim: enable Alert smogowy → permission prompt; set a low threshold, trigger a
++  reading ≥ threshold → smog notification fires once; staying above doesn't re-fire; 22:00–07:00
++  suppresses. Screenshot → evidence/19.
++
++## Verification
++- **AC-1/2/2b** core `src/core/alert/__tests__/` (100% core).
++- **AC-3** `src/data/notifications/__tests__/` (add `displayNotification` to the mock).
++- **AC-4** `src/shared/alert/__tests__/` (fake Notifier + injected clock + fake active place/settings;
++  drive place switches for the per-place dedup case).
++- **AC-5** `src/features/ustawienia/__tests__/UstawieniaScreen` (all three tags absent).
++- **AC-6** manual, journal `docs/harness/19-smog-alert.md` + evidence/19.
++
++## Resolved (critic)
++- **B1** alert is currently `soon` — AC-5 un-tags all three. **S1** `notifySmog` added to the adapter +
++  the `fakeNotifier` + jest mock. **S2** per-place dedup via a `Map<placeKey,boolean>`. **S3** injectable
++  `now`. **S4** only `ready` evaluated. **M1** composed quiet-cross AC-2b. **M2** `alert` default → false +
++  morning-mirrored permission (no launch prompt). **M3** channel-before-display. **M4** approved copy.
++- Open Qs: (1) per-toggle permission ownership kept (no shared helper — only 2 consumers). (2) in-memory
++  per-place Map dedup accepted for the foreground slice (one re-fire possible after app restart while
++  above — documented). (3) quiet-freeze kept (fires once quiet ends).
+diff --git a/docs/superpowers/plans/2026-08-16-m-smog-alert.md b/docs/superpowers/plans/2026-08-16-m-smog-alert.md
+new file mode 100644
+index 0000000..bccd309
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-16-m-smog-alert.md
+@@ -0,0 +1,122 @@
++# Smog alert (foreground slice) Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use checkbox syntax.
++
++**Goal:** Fire a local smog notification on a rising CAQI-index crossing of `threshold` (deduped per place, honoring quiet hours + the `alert` toggle), evaluated on each ready reading while the app runs.
++
++**Architecture:** Pure `core/alert` state machine → a `notifySmog` method on the `Notifier` seam (@notifee `displayNotification`, already installed) → a `SmogAlertProvider` (mirrors `NotificationsProvider`) that threads per-place `wasAbove` and fires. `alert` default flips to opt-in. Foreground path fully headless; background (BGTaskScheduler) deferred.
++
++**Tech Stack:** TS strict, RN 0.86, Jest + @testing-library/react-native (async render/renderHook — await). No new dependency (@notifee already installed).
++
++## Global Constraints
++- No new dependency. · TS strict / no `any`. · `core` pure, 100% coverage. · files ≤200 / functions ≤40. · imports one-way (features→shared→core, data→core; features never import data). · behavior tests cite AC IDs.
++- Spec `docs/specs/019-smog-alert.md` authoritative. Copy is the approved design string `"Ogranicz długie i intensywne aktywności na zewnątrz."` (design/README.md:74). Quiet window fixed 22:00–07:00.
++
++---
++
++### Task 1: Core alert logic (`src/core/alert/index.ts`)
++
++**Files:** Create `src/core/alert/index.ts`; Test `src/core/alert/__tests__/decision.test.ts`.
++
++**Interfaces — Produces:** `QUIET_START_HOUR`, `QUIET_END_HOUR`, `isQuietHour(now)`, `SmogInput`, `SmogDecision`, `smogAlertDecision(prev, input)`.
++
++- [ ] **Step 1: Failing tests (AC-1, AC-2, AC-2b)** — `isQuietHour` boundaries (22:00/23:30/00:00/06:59 true; 07:00/12:00/21:59 false, frozen `now`); the full `smogAlertDecision` table (rising→{true,true}; staying→{false,true}; drop→{false,false}; re-cross→fires; alert off→{false,false}; quiet+above→{false,prev}; index===threshold above); AC-2b composed (cross begins in quiet → {false,false} through quiet → fires once on first non-quiet eval while above).
++- [ ] **Step 2: Run, verify fail** — `npx jest src/core/alert`.
++- [ ] **Step 3: Implement**:
++
++```ts
++export const QUIET_START_HOUR = 22;
++export const QUIET_END_HOUR = 7;
++
++export function isQuietHour(now: Date): boolean {
++  const h = now.getHours();
++  return h >= QUIET_START_HOUR || h < QUIET_END_HOUR;
++}
++
++export interface SmogInput {
++  index: number;
++  threshold: number;
++  alertOn: boolean;
++  now: Date;
++}
++export interface SmogDecision {
++  fire: boolean;
++  wasAbove: boolean;
++}
++
++export function smogAlertDecision(
++  prev: { wasAbove: boolean },
++  input: SmogInput,
++): SmogDecision {
++  if (!input.alertOn) return { fire: false, wasAbove: false };
++  if (isQuietHour(input.now)) return { fire: false, wasAbove: prev.wasAbove };
++  const above = input.index >= input.threshold;
++  return { fire: above && !prev.wasAbove, wasAbove: above };
++}
++```
++
++- [ ] **Step 4: Run tests** green.
++- [ ] **Step 5: Full gate** (`npm run typecheck && npm run lint && npm test`) green, `src/core` 100%. Commit: `feat(core): smog alert decision + quiet hours (AC-1, AC-2)`.
++
++---
++
++### Task 2: Notifier.notifySmog + @notifee adapter + mock + fake
++
++**Files:** Modify `src/core/notifications/index.ts` (add `notifySmog` to `Notifier`); `src/data/notifications/index.ts` (impl); `jest.setup.js` (mock); `src/shared/notifications/__tests__/NotificationsProvider.test.tsx` (`fakeNotifier` gains `notifySmog`); Test `src/data/notifications/__tests__/` (extend).
++
++**Interfaces — Consumes:** nothing new. **Produces:** `Notifier.notifySmog(index)`.
++
++- [ ] **Step 1: Failing test (AC-3)** — `createNotifeeNotifier().notifySmog(42)` calls `notifee.createChannel` then `notifee.displayNotification` with `body` === the approved copy and the index in the title-or-body per spec; the other methods unchanged.
++- [ ] **Step 2: Run, verify fail**.
++- [ ] **Step 3: Implement**
++  - `core/notifications`: add `notifySmog(index: number): Promise<void>;` to `Notifier`.
++  - `jest.setup.js`: add `displayNotification: jest.fn(async () => undefined)` to the @notifee default mock.
++  - `data/notifications`: implement `notifySmog` — `await notifee.createChannel({ id: SMOG_CHANNEL, name: 'Alert smogowy', importance: AndroidImportance.DEFAULT }); await notifee.displayNotification({ title: 'Alert smogowy', body: 'Ogranicz długie i intensywne aktywności na zewnątrz.', android: { channelId: SMOG_CHANNEL } });` (index available for future richer copy; keep approved body).
++  - `NotificationsProvider.test.tsx`: add `notifySmog: jest.fn()` to `fakeNotifier` so it still satisfies `Notifier` (S1 — else typecheck reds).
++- [ ] **Step 4: Run tests** — `npm test` green (typecheck must pass — all Notifier doubles complete).
++- [ ] **Step 5: Full gate** green. Commit: `feat(notifications): Notifier.notifySmog via @notifee displayNotification (AC-3)`.
++
++---
++
++### Task 3: SmogAlertProvider + App wiring (`src/shared/alert`)
++
++**Files:** Create `src/shared/alert/index.tsx`; Test `src/shared/alert/__tests__/SmogAlertProvider.test.tsx`; Modify `App.tsx`.
++
++**Interfaces — Consumes:** `smogAlertDecision`, `Notifier` (core); `useActivePlace`, `useSettings` (shared). **Produces:** `SmogAlertProvider({ notifier, now?, children })`.
++
++- [ ] **Step 1: Failing test (AC-4)** — fake `Notifier` + injected `now` + the active-place/settings harness (copy the `NotificationsProvider` + `ActivePlaceContext` test wiring). Assert: fires `notifySmog(index)` once on a rising crossing; NOT while staying above; NOT below threshold / alert off / quiet hours (via injected `now`) / `status !== 'ready'`; re-fires after dropping below; **per-place** — place A(≥thr) fires, switch to B and back to A (still ≥thr) does NOT re-fire A, a distinct B(≥thr) fires; toggling `alert` on → `requestPermission`, denied → `set('alert', false)`. Cite AC-4.
++- [ ] **Step 2: Run, verify fail**.
++- [ ] **Step 3: Implement** `SmogAlertProvider`:
++  - Read `useActivePlace()` → `{ active, status, reading }`; derive `placeKey` the same way `usePlaceReading` does (`active.kind === 'location' ? 'location' : \`station:${active.station.id}\``). Read `useSettings()` → `{ settings: { alert, threshold }, set }`.
++  - Permission effect keyed on `settings.alert` (mirror `NotificationsProvider`): `if (alert) requestPermission().then(g => { if (!g) set('alert', false); })` (deny-revert; `active` unmount guard; eslint-disable justified as in NotificationsProvider).
++  - Fire effect keyed on `[status, reading, settings.alert, settings.threshold]`: if `status !== 'ready' || !reading` return; `const map = mapRef.current; const prev = map.get(placeKey) ?? false; const d = smogAlertDecision({ wasAbove: prev }, { index: reading.index, threshold: settings.threshold, alertOn: settings.alert, now: now() }); map.set(placeKey, d.wasAbove); if (d.fire) notifier.notifySmog(reading.index);` where `mapRef = useRef(new Map<string, boolean>())` and `now = props.now ?? (() => new Date())`.
++  - Return `<>{children}</>`.
++  - `App.tsx`: mount `<SmogAlertProvider notifier={notifier}>` under `ActivePlaceProvider` + `SettingsProvider` (reuse the `notifier` instance already built for NotificationsProvider, or a fresh `createNotifeeNotifier()`).
++- [ ] **Step 4: Run tests** green.
++- [ ] **Step 5: Full gate** green. Commit: `feat(alert): SmogAlertProvider — per-place threshold-crossing alerts (AC-4)`.
++
++---
++
++### Task 4: Settings default + un-tag Ustawienia rows
++
++**Files:** Modify `src/core/settings/index.ts` (`DEFAULT_SETTINGS.alert`); `src/features/ustawienia/UstawieniaScreen.tsx` (drop `soon` ×3); update `src/core/settings/__tests__/*` + `src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx`.
++
++- [ ] **Step 1: Update failing tests (AC-5 + default)** — settings test: `DEFAULT_SETTINGS.alert === false`; `mergeSettings({})` / missing → `alert: false`. Ustawienia tag test: move `alert`, `threshold`, `quiet` all to the ABSENT (`queryByTestId('wkrotce-*')` null) list; the present set is now empty.
++- [ ] **Step 2: Run, verify fail** (the old default/tag assertions red).
++- [ ] **Step 3: Implement** — `DEFAULT_SETTINGS.alert: false`; drop `soon` on the `alert`, `threshold`, `quiet` rows in `UstawieniaScreen.tsx`.
++- [ ] **Step 4: Fix fallout** — any other suite asserting `alert: true` default (grep `alert: true`, `DEFAULT_SETTINGS`).
++- [ ] **Step 5: Full gate** green, `src/core` 100%. Commit: `feat(ustawienia): un-tag alert/threshold/quiet; alert default opt-in (AC-5)`.
++
++---
++
++### Task 5: Manual sim (AC-6) + journal
++- [ ] Enable Alert smogowy → permission prompt; low threshold → reading ≥ threshold fires once; staying above no re-fire; 22:00–07:00 suppresses. Screenshot → evidence/19.
++- [ ] Journal `docs/harness/19-smog-alert.md` + spec status.
++
++---
++
++## Self-review
++- **Spec coverage:** AC-1/2/2b→T1; AC-3→T2; AC-4→T3; AC-5→T4; AC-6→T5. All covered.
++- **Type consistency:** `Notifier.notifySmog` (T2) implemented by adapter + fake + provider-test fake; `smogAlertDecision`/`SmogInput` (T1) consumed by T3.
++- **S1 guard:** T2 updates every `Notifier` double so typecheck stays green. **S2:** per-place Map in T3. **M2:** default flip in T4 (App-mounted provider from T3 is inert in tests; the flip lands before any manual run).
++- **No placeholders:** code inline; approved copy pinned.
+diff --git a/jest.config.js b/jest.config.js
+index ec59690..1263aae 100644
+--- a/jest.config.js
++++ b/jest.config.js
+@@ -1,13 +1,20 @@
+ module.exports = {
+   preset: '@react-native/jest-preset',
+   // Steer react-native-worklets imports to the JS (non-native) module so the
+   // worklets TurboModule proxy isn't required under Jest (Reanimated 4).
+   resolver: 'react-native-worklets/jest/resolver.js',
++  // Narrower than the default `**/__tests__/**/*` — require the `.test.`
++  // suffix so shared test-only helper modules (e.g. a `harness.tsx` a suite
++  // imports from) can live alongside spec files in `__tests__/` without
++  // Jest treating them as suites of their own. Matches every existing spec
++  // file already (all named `*.test.{ts,tsx}`), so this is a no-op for
++  // current discovery.
++  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
+   setupFiles: [
+     '<rootDir>/jest.setup.js',
+     '@shopify/react-native-skia/jestSetup.js',
+   ],
+   collectCoverageFrom: [
+     'src/**/*.{ts,tsx}',
+     '!src/**/__tests__/**',
+     '!src/**/_*',
+diff --git a/jest.setup.js b/jest.setup.js
+index 49da163..7daef32 100644
+--- a/jest.setup.js
++++ b/jest.setup.js
+@@ -75,16 +75,17 @@ jest.mock('react-native-safe-area-context', () => ({
+ // own tests set return values (requestPermission authorization status) per case.
+ jest.mock('@notifee/react-native', () => ({
+   __esModule: true,
+   default: {
+     requestPermission: jest.fn(async () => ({ authorizationStatus: 1 })),
+     createChannel: jest.fn(async () => 'default'),
+     createTriggerNotification: jest.fn(async () => undefined),
+     cancelTriggerNotification: jest.fn(async () => undefined),
++    displayNotification: jest.fn(async () => undefined),
+   },
+   AuthorizationStatus: {
+     NOT_DETERMINED: -1,
+     DENIED: 0,
+     AUTHORIZED: 1,
+     PROVISIONAL: 2,
+   },
+   TriggerType: { TIMESTAMP: 0, INTERVAL: 1 },
+diff --git a/src/core/alert/__tests__/decision.test.ts b/src/core/alert/__tests__/decision.test.ts
+new file mode 100644
+index 0000000..69c8dbf
+--- /dev/null
++++ b/src/core/alert/__tests__/decision.test.ts
+@@ -0,0 +1,130 @@
++import { isQuietHour, smogAlertDecision } from '..';
++
++// AC-1: isQuietHour boundaries (local hour >= 22 || < 7), frozen Dates.
++test('AC-1: isQuietHour — true at 22:00, 23:30, 00:00, 06:59; false at 07:00, 12:00, 21:59', () => {
++  const at = (h: number, m: number) => new Date(2026, 7, 16, h, m, 0, 0);
++
++  expect(isQuietHour(at(22, 0))).toBe(true);
++  expect(isQuietHour(at(23, 30))).toBe(true);
++  expect(isQuietHour(at(0, 0))).toBe(true);
++  expect(isQuietHour(at(6, 59))).toBe(true);
++
++  expect(isQuietHour(at(7, 0))).toBe(false);
++  expect(isQuietHour(at(12, 0))).toBe(false);
++  expect(isQuietHour(at(21, 59))).toBe(false);
++});
++
++// AC-2: smogAlertDecision table — precedence off → quiet → normal.
++describe('AC-2: smogAlertDecision', () => {
++  const noon = new Date(2026, 7, 16, 12, 0, 0, 0);
++  const quiet = new Date(2026, 7, 16, 23, 0, 0, 0);
++
++  test('rising edge (prev false, index >= threshold, alert on, not quiet) fires and sets wasAbove', () => {
++    const result = smogAlertDecision(
++      { wasAbove: false },
++      { index: 120, threshold: 100, alertOn: true, now: noon },
++    );
++    expect(result).toEqual({ fire: true, wasAbove: true });
++  });
++
++  test('staying above (prev true) does not re-fire', () => {
++    const result = smogAlertDecision(
++      { wasAbove: true },
++      { index: 130, threshold: 100, alertOn: true, now: noon },
++    );
++    expect(result).toEqual({ fire: false, wasAbove: true });
++  });
++
++  test('dropping below resets wasAbove without firing', () => {
++    const result = smogAlertDecision(
++      { wasAbove: true },
++      { index: 80, threshold: 100, alertOn: true, now: noon },
++    );
++    expect(result).toEqual({ fire: false, wasAbove: false });
++  });
++
++  test('re-crossing after a drop fires again', () => {
++    const dropped = smogAlertDecision(
++      { wasAbove: true },
++      { index: 80, threshold: 100, alertOn: true, now: noon },
++    );
++    const recrossed = smogAlertDecision(dropped, {
++      index: 120,
++      threshold: 100,
++      alertOn: true,
++      now: noon,
++    });
++    expect(recrossed).toEqual({ fire: true, wasAbove: true });
++  });
++
++  test('alert off never fires, regardless of index, and resets wasAbove', () => {
++    const result = smogAlertDecision(
++      { wasAbove: true },
++      { index: 999, threshold: 100, alertOn: false, now: noon },
++    );
++    expect(result).toEqual({ fire: false, wasAbove: false });
++  });
++
++  test('quiet + above suppresses and freezes prev.wasAbove', () => {
++    const result = smogAlertDecision(
++      { wasAbove: true },
++      { index: 999, threshold: 100, alertOn: true, now: quiet },
++    );
++    expect(result).toEqual({ fire: false, wasAbove: true });
++
++    const resultFromBelow = smogAlertDecision(
++      { wasAbove: false },
++      { index: 999, threshold: 100, alertOn: true, now: quiet },
++    );
++    expect(resultFromBelow).toEqual({ fire: false, wasAbove: false });
++  });
++
++  test('index === threshold counts as above', () => {
++    const result = smogAlertDecision(
++      { wasAbove: false },
++      { index: 100, threshold: 100, alertOn: true, now: noon },
++    );
++    expect(result).toEqual({ fire: true, wasAbove: true });
++  });
++});
++
++// AC-2b: composed — a crossing that begins during quiet hours fires exactly
++// once, on the first non-quiet evaluation, threading `wasAbove` through.
++test('AC-2b: crossing that begins during quiet hours fires once when quiet ends', () => {
++  const duringQuiet = new Date(2026, 7, 16, 23, 0, 0, 0);
++  const afterQuiet = new Date(2026, 7, 17, 7, 0, 0, 0);
++
++  // Below threshold, quiet hours: no fire, not above.
++  const step1 = smogAlertDecision(
++    { wasAbove: false },
++    { index: 80, threshold: 100, alertOn: true, now: duringQuiet },
++  );
++  expect(step1).toEqual({ fire: false, wasAbove: false });
++
++  // Crosses above threshold, still quiet: suppressed and FROZEN at prev (false).
++  const step2 = smogAlertDecision(step1, {
++    index: 150,
++    threshold: 100,
++    alertOn: true,
++    now: duringQuiet,
++  });
++  expect(step2).toEqual({ fire: false, wasAbove: false });
++
++  // Quiet ends, still above threshold: fires exactly once now.
++  const step3 = smogAlertDecision(step2, {
++    index: 150,
++    threshold: 100,
++    alertOn: true,
++    now: afterQuiet,
++  });
++  expect(step3).toEqual({ fire: true, wasAbove: true });
++
++  // Next ready reading, still above, non-quiet: does not re-fire.
++  const step4 = smogAlertDecision(step3, {
++    index: 150,
++    threshold: 100,
++    alertOn: true,
++    now: afterQuiet,
++  });
++  expect(step4).toEqual({ fire: false, wasAbove: true });
++});
+diff --git a/src/core/alert/index.ts b/src/core/alert/index.ts
+new file mode 100644
+index 0000000..5f0245f
+--- /dev/null
++++ b/src/core/alert/index.ts
+@@ -0,0 +1,28 @@
++export const QUIET_START_HOUR = 22;
++export const QUIET_END_HOUR = 7;
++
++export function isQuietHour(now: Date): boolean {
++  const h = now.getHours();
++  return h >= QUIET_START_HOUR || h < QUIET_END_HOUR;
++}
++
++export interface SmogInput {
++  index: number;
++  threshold: number;
++  alertOn: boolean;
++  now: Date;
++}
++export interface SmogDecision {
++  fire: boolean;
++  wasAbove: boolean;
++}
++
++export function smogAlertDecision(
++  prev: { wasAbove: boolean },
++  input: SmogInput,
++): SmogDecision {
++  if (!input.alertOn) return { fire: false, wasAbove: false };
++  if (isQuietHour(input.now)) return { fire: false, wasAbove: prev.wasAbove };
++  const above = input.index >= input.threshold;
++  return { fire: above && !prev.wasAbove, wasAbove: above };
++}
+diff --git a/src/core/notifications/index.ts b/src/core/notifications/index.ts
+index 35eed00..63c45d9 100644
+--- a/src/core/notifications/index.ts
++++ b/src/core/notifications/index.ts
+@@ -1,16 +1,17 @@
+ export const MORNING_TIME = '07:30';
+ 
+ // The seam features/settings use; the @notifee adapter (data layer) implements it,
+ // a fake in tests. Never import @notifee outside that adapter.
+ export interface Notifier {
+   requestPermission(): Promise<boolean>;
+   scheduleMorning(time?: string): Promise<void>;
+   cancelMorning(): Promise<void>;
++  notifySmog(index: number): Promise<void>;
+ }
+ 
+ // Epoch-ms of the NEXT occurrence of HH:MM in LOCAL wall-clock time: today if
+ // `now` is strictly before it, else tomorrow (a notifee TimestampTrigger needs a
+ // future time). `now` is injected (pure/testable).
+ export function nextMorningTimestamp(
+   now: Date,
+   time: string = MORNING_TIME,
+diff --git a/src/core/settings/__tests__/settings.test.ts b/src/core/settings/__tests__/settings.test.ts
+index 30c1bb9..a17a663 100644
+--- a/src/core/settings/__tests__/settings.test.ts
++++ b/src/core/settings/__tests__/settings.test.ts
+@@ -6,24 +6,28 @@ import {
+   mergeSettings,
+   THRESHOLD_MIN,
+   THRESHOLD_MAX,
+ } from '..';
+ 
+ test('AC-1: DEFAULT_SETTINGS pins the design default state (literal fixture)', () => {
+   expect(DEFAULT_SETTINGS).toEqual({
+     loc: true,
+-    alert: true,
++    alert: false,
+     morning: false,
+     precision: 'Przybliżona',
+     scale: 'CAQI',
+     threshold: 100,
+   });
+ });
+ 
++test('AC-5: DEFAULT_SETTINGS.alert defaults to opt-in false (no unprompted permission dialog)', () => {
++  expect(DEFAULT_SETTINGS.alert).toBe(false);
++});
++
+ test('AC-2: clampThreshold rounds and clamps, NaN→default, ±Infinity clamp', () => {
+   expect(clampThreshold(10)).toBe(25);
+   expect(clampThreshold(500)).toBe(200);
+   expect(clampThreshold(100)).toBe(100);
+   expect(clampThreshold(37.6)).toBe(38);
+   expect(clampThreshold(25)).toBe(25);
+   expect(clampThreshold(200)).toBe(200);
+   expect(clampThreshold(NaN)).toBe(100);
+@@ -41,19 +45,20 @@ test('AC-3: slider math is pure, clamped, rounded, round-trips', () => {
+   expect(ratioFromThreshold(200)).toBe(1);
+   for (let t = THRESHOLD_MIN; t <= THRESHOLD_MAX; t++) {
+     expect(thresholdFromRatio(ratioFromThreshold(t))).toBe(t);
+   }
+ });
+ 
+ test('AC-4: mergeSettings fills defaults, validates types/enums, clamps, drops unknowns', () => {
+   expect(mergeSettings({})).toEqual(DEFAULT_SETTINGS);
++  expect(mergeSettings({}).alert).toBe(false);
+   expect(mergeSettings({ alert: false }).alert).toBe(false);
+   expect(mergeSettings({ alert: false }).loc).toBe(true);
+-  expect(mergeSettings({ alert: 'yes' }).alert).toBe(true);
++  expect(mergeSettings({ alert: 'yes' }).alert).toBe(false);
+   expect(mergeSettings({ scale: 'ZZZ' }).scale).toBe('CAQI');
+   expect(mergeSettings({ threshold: 5000 }).threshold).toBe(200);
+   expect(
+     (mergeSettings({ nope: 1 }) as unknown as Record<string, unknown>).nope,
+   ).toBeUndefined();
+   expect(mergeSettings(null)).toEqual(DEFAULT_SETTINGS);
+   expect(mergeSettings(42)).toEqual(DEFAULT_SETTINGS);
+   expect(mergeSettings('x')).toEqual(DEFAULT_SETTINGS);
+diff --git a/src/core/settings/index.ts b/src/core/settings/index.ts
+index 465a88a..73471d7 100644
+--- a/src/core/settings/index.ts
++++ b/src/core/settings/index.ts
+@@ -10,17 +10,17 @@ export interface Settings {
+   threshold: number;
+ }
+ 
+ export const THRESHOLD_MIN = 25;
+ export const THRESHOLD_MAX = 200;
+ 
+ export const DEFAULT_SETTINGS: Settings = {
+   loc: true,
+-  alert: true,
++  alert: false,
+   morning: false,
+   precision: 'Przybliżona',
+   scale: 'CAQI',
+   threshold: 100,
+ };
+ 
+ const PRECISIONS: readonly Precision[] = ['Przybliżona', 'Dokładna'];
+ const SCALES: readonly Scale[] = ['CAQI', 'US AQI', 'µg/m³'];
+diff --git a/src/data/notifications/__tests__/notifier.test.ts b/src/data/notifications/__tests__/notifier.test.ts
+index fddbbdb..c664320 100644
+--- a/src/data/notifications/__tests__/notifier.test.ts
++++ b/src/data/notifications/__tests__/notifier.test.ts
+@@ -64,9 +64,29 @@ describe('createNotifeeNotifier (AC-3)', () => {
+   test('AC-3: requestPermission maps DENIED → false', async () => {
+     (notifee.requestPermission as jest.Mock).mockResolvedValueOnce({
+       authorizationStatus: AuthorizationStatus.DENIED,
+     });
+     await expect(
+       createNotifeeNotifier(() => FIXED_NOW).requestPermission(),
+     ).resolves.toBe(false);
+   });
++
++  test('AC-3: notifySmog creates the smog channel then displays the approved copy', async () => {
++    await createNotifeeNotifier(() => FIXED_NOW).notifySmog(42);
++
++    expect(notifee.createChannel).toHaveBeenCalledTimes(1);
++    expect(notifee.createChannel).toHaveBeenCalledWith(
++      expect.objectContaining({ id: 'powietrze-smog' }),
++    );
++    expect(notifee.displayNotification).toHaveBeenCalledTimes(1);
++    const [notification] = (notifee.displayNotification as jest.Mock).mock
++      .calls[0];
++    expect(notification.body).toBe(
++      'Ogranicz długie i intensywne aktywności na zewnątrz.',
++    );
++    expect(notification.android.channelId).toBe('powietrze-smog');
++
++    // Other Notifier methods untouched by notifySmog.
++    expect(notifee.createTriggerNotification).not.toHaveBeenCalled();
++    expect(notifee.cancelTriggerNotification).not.toHaveBeenCalled();
++  });
+ });
+diff --git a/src/data/notifications/index.ts b/src/data/notifications/index.ts
+index dcfb66b..7669049 100644
+--- a/src/data/notifications/index.ts
++++ b/src/data/notifications/index.ts
+@@ -9,16 +9,17 @@ import {
+   MORNING_TIME,
+   nextMorningTimestamp,
+   type Notifier,
+ } from '../../core/notifications';
+ 
+ // A FIXED id so re-scheduling REPLACES rather than duplicating the daily notif.
+ const MORNING_ID = 'powietrze-morning';
+ const MORNING_CHANNEL = 'powietrze-morning';
++const SMOG_CHANNEL = 'powietrze-smog';
+ 
+ // The @notifee implementation of the pure `Notifier` seam. `now` is injectable
+ // for tests (defaults to the wall clock). This is the ONLY module that imports
+ // @notifee — features/settings use the `Notifier` interface. Content is generic
+ // (a local scheduled notif's body is fixed at schedule time — no live-data/city
+ // access here; that needs the deferred background fetch).
+ export function createNotifeeNotifier(
+   now: () => Date = () => new Date(),
+@@ -54,10 +55,25 @@ export function createNotifeeNotifier(
+         },
+         trigger,
+       );
+     },
+ 
+     async cancelMorning() {
+       await notifee.cancelTriggerNotification(MORNING_ID);
+     },
++
++    // `index` is available for future richer copy; the body is fixed to the
++    // approved design string for now (design/README.md:74).
++    async notifySmog(_index: number) {
++      await notifee.createChannel({
++        id: SMOG_CHANNEL,
++        name: 'Alert smogowy',
++        importance: AndroidImportance.DEFAULT,
++      });
++      await notifee.displayNotification({
++        title: 'Alert smogowy',
++        body: 'Ogranicz długie i intensywne aktywności na zewnątrz.',
++        android: { channelId: SMOG_CHANNEL },
++      });
++    },
+   };
+ }
+diff --git a/src/features/ustawienia/UstawieniaScreen.tsx b/src/features/ustawienia/UstawieniaScreen.tsx
+index c69a80b..c489296 100644
+--- a/src/features/ustawienia/UstawieniaScreen.tsx
++++ b/src/features/ustawienia/UstawieniaScreen.tsx
+@@ -91,34 +91,28 @@ function LokalizacjaGroup({ settings, set }: GroupProps) {
+ }
+ 
+ function PowiadomieniaGroup({ settings, set }: GroupProps) {
+   return (
+     <SettingsGroup label="POWIADOMIENIA">
+       <ToggleRow
+         keyName="alert"
+         title="Alert smogowy"
+-        soon
+         testID="toggle-alert"
+         value={settings.alert}
+         onValueChange={v => set('alert', v)}
+       />
+-      <StackedRow keyName="threshold" title="Próg alertu" soon>
++      <StackedRow keyName="threshold" title="Próg alertu">
+         <ThresholdSlider
+           testID="slider-threshold"
+           value={settings.threshold}
+           onChange={v => set('threshold', v)}
+         />
+       </StackedRow>
+-      <SettingRow
+-        keyName="quiet"
+-        title="Godziny ciszy"
+-        soon
+-        value="22:00 – 07:00"
+-      />
++      <SettingRow keyName="quiet" title="Godziny ciszy" value="22:00 – 07:00" />
+       <ToggleRow
+         keyName="morning"
+         title="Poranne podsumowanie"
+         subtitle="07:30"
+         testID="toggle-morning"
+         value={settings.morning}
+         onValueChange={v => set('morning', v)}
+       />
+diff --git a/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx b/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
+index f2ea8eb..2a2fccc 100644
+--- a/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
++++ b/src/features/ustawienia/__tests__/UstawieniaScreen.test.tsx
+@@ -74,32 +74,32 @@ test('AC-18: exact Polish copy for every row + footer, widget row removed', asyn
+   expect(screen.queryByText('Automatyczna')).toBeNull();
+   expect(screen.queryByTestId('setting-widget')).toBeNull();
+ });
+ 
+ test('AC-19: toggling Alert smogowy persists alert inverted', async () => {
+   const s = store();
+   await renderScreen(s);
+   fireEvent.press(screen.getByTestId('toggle-alert'));
+-  await waitFor(() => expect(s.saved.at(-1)?.alert).toBe(false));
++  await waitFor(() => expect(s.saved.at(-1)?.alert).toBe(true));
+ });
+ 
+ test('AC-20: choosing Dokładna persists precision', async () => {
+   const s = store();
+   await renderScreen(s);
+   fireEvent.press(screen.getByTestId('seg-precision-Dokładna'));
+   await waitFor(() => expect(s.saved.at(-1)?.precision).toBe('Dokładna'));
+ });
+ 
+-test('AC-5: Wkrótce tags only on still-unwired rows (alert, threshold, quiet); morning is now live', async () => {
++test('AC-5: no Wkrótce tags remain — alert, threshold, quiet are now live like morning', async () => {
+   await renderScreen(store());
+-  for (const k of ['alert', 'threshold', 'quiet']) {
+-    expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
+-  }
+   for (const k of [
++    'alert',
++    'threshold',
++    'quiet',
+     'morning',
+     'loc',
+     'precision',
+     'scale',
+     'widget',
+     'source',
+     'refresh',
+   ]) {
+diff --git a/src/shared/alert/__tests__/crossing.test.tsx b/src/shared/alert/__tests__/crossing.test.tsx
+new file mode 100644
+index 0000000..8638e99
+--- /dev/null
++++ b/src/shared/alert/__tests__/crossing.test.tsx
+@@ -0,0 +1,175 @@
++import { waitFor, act, fireEvent } from '@testing-library/react-native';
++import type { Reading } from '../../../core/air';
++import type { SourceForPlace } from '../../place';
++import {
++  fakeNotifier,
++  fixedSource,
++  reading,
++  NIGHT,
++  AlertControls,
++  renderAlert,
++} from './harness';
++
++// AC-4: rising-crossing firing + the ready-only gate (S4). Per-place dedup
++// lives in perPlace.test.tsx; permission handling in permission.test.tsx.
++
++test('AC-4: fires notifySmog once on a rising crossing', async () => {
++  const n = fakeNotifier();
++  await renderAlert({
++    notifier: n,
++    sourceForPlace: fixedSource({ 1: 80 }),
++    settings: { alert: true, threshold: 50 },
++  });
++  await waitFor(() => expect(n.notifySmog).toHaveBeenCalledTimes(1));
++  expect(n.notifySmog).toHaveBeenCalledWith(80);
++});
++
++test('AC-4: does not fire below threshold', async () => {
++  const n = fakeNotifier();
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    sourceForPlace: fixedSource({ 1: 10 }),
++    settings: { alert: true, threshold: 50 },
++    children: <AlertControls />,
++  });
++  await waitFor(() =>
++    expect(getByTestId('status').props.children).toBe('ready'),
++  );
++  expect(n.notifySmog).not.toHaveBeenCalled();
++});
++
++test('AC-4: does not fire when alert is off', async () => {
++  const n = fakeNotifier();
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    sourceForPlace: fixedSource({ 1: 80 }),
++    settings: { alert: false, threshold: 50 },
++    children: <AlertControls />,
++  });
++  await waitFor(() =>
++    expect(getByTestId('status').props.children).toBe('ready'),
++  );
++  expect(n.notifySmog).not.toHaveBeenCalled();
++});
++
++test('AC-4: does not fire during quiet hours', async () => {
++  const n = fakeNotifier();
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    now: NIGHT,
++    sourceForPlace: fixedSource({ 1: 80 }),
++    settings: { alert: true, threshold: 50 },
++    children: <AlertControls />,
++  });
++  await waitFor(() =>
++    expect(getByTestId('status').props.children).toBe('ready'),
++  );
++  expect(n.notifySmog).not.toHaveBeenCalled();
++});
++
++test('AC-4 (S4): does not fire while status is not ready (loading)', async () => {
++  const n = fakeNotifier();
++  let resolveReading: ((r: Reading) => void) | undefined;
++  const pendingSource: SourceForPlace = () => ({
++    getCurrentReading: () =>
++      new Promise<Reading>(resolve => {
++        resolveReading = resolve;
++      }),
++  });
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    sourceForPlace: pendingSource,
++    settings: { alert: true, threshold: 50 },
++    children: <AlertControls />,
++  });
++  expect(getByTestId('status').props.children).toBe('loading');
++  expect(n.notifySmog).not.toHaveBeenCalled();
++  await act(async () => {
++    resolveReading?.(reading(80));
++  });
++  await waitFor(() => expect(n.notifySmog).toHaveBeenCalledTimes(1));
++});
++
++test('AC-4 (S4): a stale reading (retains prior value) is NOT evaluated and does not corrupt wasAbove', async () => {
++  const n = fakeNotifier();
++  let stationCalls = 0;
++  const source: SourceForPlace = place => ({
++    getCurrentReading: () => {
++      if (place.kind !== 'station') return Promise.resolve(reading(0));
++      stationCalls += 1;
++      if (stationCalls === 2) return Promise.reject(new Error('network'));
++      return Promise.resolve(reading(80));
++    },
++  });
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    sourceForPlace: source,
++    settings: { alert: true, threshold: 50 },
++    withRefresh: true,
++    children: <AlertControls />,
++  });
++  // 1st fetch: ready @80 (>= threshold) — fires once.
++  await waitFor(() => expect(n.notifySmog).toHaveBeenCalledTimes(1));
++
++  // 2nd fetch (refresh): rejects → stale, retains @80. Must NOT re-evaluate.
++  await act(async () => {
++    fireEvent.press(getByTestId('refresh'));
++  });
++  await waitFor(() =>
++    expect(getByTestId('status').props.children).toBe('stale'),
++  );
++  expect(n.notifySmog).toHaveBeenCalledTimes(1);
++
++  // 3rd fetch (refresh): ready @80 again (still above). A buggy stale
++  // evaluation could have reset wasAbove, wrongly re-firing here.
++  await act(async () => {
++    fireEvent.press(getByTestId('refresh'));
++  });
++  await waitFor(() =>
++    expect(getByTestId('status').props.children).toBe('ready'),
++  );
++  expect(n.notifySmog).toHaveBeenCalledTimes(1);
++});
++
++test('AC-4: staying above threshold on refetch does not re-fire; dropping below then re-crossing fires again', async () => {
++  const n = fakeNotifier();
++  let index = 80;
++  const source: SourceForPlace = place => ({
++    getCurrentReading: () =>
++      Promise.resolve(reading(place.kind === 'station' ? index : 0)),
++  });
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    sourceForPlace: source,
++    settings: { alert: true, threshold: 50 },
++    withRefresh: true,
++    children: <AlertControls />,
++  });
++  await waitFor(() => expect(n.notifySmog).toHaveBeenCalledTimes(1));
++
++  // Refetch while still above threshold: must NOT re-fire.
++  await act(async () => {
++    fireEvent.press(getByTestId('refresh'));
++  });
++  await waitFor(() =>
++    expect(getByTestId('refreshing').props.children).toBe('false'),
++  );
++  expect(n.notifySmog).toHaveBeenCalledTimes(1);
++
++  // Drop below threshold, refetch: no fire, but wasAbove resets.
++  index = 10;
++  await act(async () => {
++    fireEvent.press(getByTestId('refresh'));
++  });
++  await waitFor(() =>
++    expect(getByTestId('refreshing').props.children).toBe('false'),
++  );
++  expect(n.notifySmog).toHaveBeenCalledTimes(1);
++
++  // Re-cross: fires again.
++  index = 80;
++  await act(async () => {
++    fireEvent.press(getByTestId('refresh'));
++  });
++  await waitFor(() => expect(n.notifySmog).toHaveBeenCalledTimes(2));
++});
+diff --git a/src/shared/alert/__tests__/harness.tsx b/src/shared/alert/__tests__/harness.tsx
+new file mode 100644
+index 0000000..011d0e8
+--- /dev/null
++++ b/src/shared/alert/__tests__/harness.tsx
+@@ -0,0 +1,174 @@
++import { render } from '@testing-library/react-native';
++import { Text, Pressable } from 'react-native';
++import type { ReactNode } from 'react';
++import { SmogAlertProvider } from '..';
++import {
++  PlaceSourceProvider,
++  ActivePlaceProvider,
++  useActivePlace,
++  type SourceForPlace,
++} from '../../place';
++import { SettingsProvider, useSettings } from '../../settings';
++import { RefreshProvider, useRefresh } from '../../refresh';
++import type { Station } from '../../../core/geo';
++import type { Reading } from '../../../core/air';
++import {
++  DEFAULT_SETTINGS,
++  type Settings,
++  type SettingsStore,
++} from '../../../core/settings';
++import type { Notifier } from '../../../core/notifications';
++
++// Shared fixtures + render harness for SmogAlertProvider's AC-4 test suite
++// (split across crossing/perPlace/permission.test.tsx — CLAUDE.md ≤200 lines).
++
++export const store = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
++  load: async () => s,
++  save: async () => {},
++});
++
++export const fakeNotifier = (
++  granted = true,
++): Notifier & { calls: string[] } => {
++  const calls: string[] = [];
++  return {
++    calls,
++    requestPermission: async () => {
++      calls.push('req');
++      return granted;
++    },
++    scheduleMorning: async () => {
++      calls.push('sched');
++    },
++    cancelMorning: async () => {
++      calls.push('cancel');
++    },
++    notifySmog: jest.fn(async (index: number) => {
++      calls.push(`smog:${index}`);
++    }),
++  };
++};
++
++export const station = (id: number, city: string): Station => ({
++  id,
++  name: `Station ${id}`,
++  city,
++  lat: 0,
++  lon: 0,
++});
++export const stationA = station(1, 'A');
++export const stationB = station(2, 'B');
++
++export const reading = (index: number, city = 'A'): Reading => ({
++  index,
++  pm25: 0,
++  measuredAt: '2026-08-16 12:00:00',
++  city,
++  station: `Station ${city}`,
++});
++
++// DAY is outside the 22:00-07:00 quiet window; NIGHT is inside it.
++export const DAY = () => new Date('2026-08-16T12:00:00');
++export const NIGHT = () => new Date('2026-08-16T23:00:00');
++
++// location kind → 0 (safely below any test threshold) so the transient
++// `location` place ActivePlaceProvider briefly holds before settings
++// hydrate (`loc` defaults true) never spuriously crosses a threshold.
++export function fixedSource(
++  indexByStationId: Record<number, number>,
++): SourceForPlace {
++  return place => ({
++    getCurrentReading: () =>
++      Promise.resolve(
++        reading(
++          place.kind === 'station' ? indexByStationId[place.station.id] : 0,
++          place.kind === 'station' ? place.station.city : 'loc',
++        ),
++      ),
++  });
++}
++
++// Exposes `status` + a `refresh` trigger with its `refreshing` state, so
++// tests can deterministically wait for a reading (incl. a stale settle) to
++// finish instead of an arbitrary timer flush.
++export function AlertControls() {
++  const { status } = useActivePlace();
++  const { refresh, refreshing } = useRefresh();
++  return (
++    <>
++      <Text testID="status">{status}</Text>
++      <Text testID="refreshing">{refreshing ? 'true' : 'false'}</Text>
++      <Pressable testID="refresh" onPress={refresh}>
++        <Text>refresh</Text>
++      </Pressable>
++    </>
++  );
++}
++
++export function AlertToggle() {
++  const { set } = useSettings();
++  return (
++    <Pressable testID="toggle-alert" onPress={() => set('alert', true)}>
++      <Text>toggle</Text>
++    </Pressable>
++  );
++}
++
++export function PlacePicker() {
++  const { setActive } = useActivePlace();
++  return (
++    <>
++      <Pressable
++        testID="pick-a"
++        onPress={() => setActive({ kind: 'station', station: stationA })}
++      >
++        <Text>a</Text>
++      </Pressable>
++      <Pressable
++        testID="pick-b"
++        onPress={() => setActive({ kind: 'station', station: stationB })}
++      >
++        <Text>b</Text>
++      </Pressable>
++    </>
++  );
++}
++
++// Wires PlaceSourceProvider → SettingsProvider → ActivePlaceProvider →
++// SmogAlertProvider, optionally under RefreshProvider (needed to force a
++// real refetch for the SAME place — crossing/re-cross/stale cases).
++export function renderAlert(opts: {
++  notifier: Notifier;
++  now?: () => Date;
++  settings?: Partial<Settings>;
++  settingsStore?: SettingsStore;
++  sourceForPlace: SourceForPlace;
++  defaultStation?: Station;
++  children?: ReactNode;
++  withRefresh?: boolean;
++}) {
++  const {
++    notifier,
++    now = DAY,
++    settings = {},
++    settingsStore,
++    sourceForPlace,
++    defaultStation = stationA,
++    children = <Text>x</Text>,
++    withRefresh = false,
++  } = opts;
++  const resolvedStore =
++    settingsStore ?? store({ ...DEFAULT_SETTINGS, loc: false, ...settings });
++  const tree = (
++    <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++      <SettingsProvider store={resolvedStore}>
++        <ActivePlaceProvider defaultStation={defaultStation}>
++          <SmogAlertProvider notifier={notifier} now={now}>
++            {children}
++          </SmogAlertProvider>
++        </ActivePlaceProvider>
++      </SettingsProvider>
++    </PlaceSourceProvider>
++  );
++  return render(withRefresh ? <RefreshProvider>{tree}</RefreshProvider> : tree);
++}
+diff --git a/src/shared/alert/__tests__/perPlace.test.tsx b/src/shared/alert/__tests__/perPlace.test.tsx
+new file mode 100644
+index 0000000..2bb9d95
+--- /dev/null
++++ b/src/shared/alert/__tests__/perPlace.test.tsx
+@@ -0,0 +1,33 @@
++import { waitFor, act, fireEvent } from '@testing-library/react-native';
++import { fakeNotifier, fixedSource, PlacePicker, renderAlert } from './harness';
++
++// AC-4 (S2): per-place dedup — a separate concern from the crossing/ready-gate
++// cases in crossing.test.tsx.
++
++test('AC-4 (S2): per-place dedup — switching away and back does not re-fire; a distinct place fires on its own', async () => {
++  const n = fakeNotifier();
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    sourceForPlace: fixedSource({ 1: 80, 2: 90 }),
++    settings: { alert: true, threshold: 50 },
++    children: <PlacePicker />,
++  });
++
++  // Place A (>= threshold) fires once.
++  await waitFor(() => expect(n.notifySmog).toHaveBeenCalledTimes(1));
++  expect(n.notifySmog).toHaveBeenLastCalledWith(80);
++
++  // Switch to B (>= threshold): fires for B.
++  await act(async () => {
++    fireEvent.press(getByTestId('pick-b'));
++  });
++  await waitFor(() => expect(n.notifySmog).toHaveBeenCalledTimes(2));
++  expect(n.notifySmog).toHaveBeenLastCalledWith(90);
++
++  // Switch back to A (still >= threshold): must NOT re-fire A. `act` already
++  // flushes the (immediately-resolving) fixedSource refetch's microtasks.
++  await act(async () => {
++    fireEvent.press(getByTestId('pick-a'));
++  });
++  expect(n.notifySmog).toHaveBeenCalledTimes(2);
++});
+diff --git a/src/shared/alert/__tests__/permission.test.tsx b/src/shared/alert/__tests__/permission.test.tsx
+new file mode 100644
+index 0000000..ab32122
+--- /dev/null
++++ b/src/shared/alert/__tests__/permission.test.tsx
+@@ -0,0 +1,27 @@
++import { waitFor, act, fireEvent } from '@testing-library/react-native';
++import { fakeNotifier, fixedSource, AlertToggle, renderAlert } from './harness';
++import { DEFAULT_SETTINGS, type Settings } from '../../../core/settings';
++
++// AC-4: toggling `alert` on requests permission; denial reverts the setting
++// (persisted). A separate concern from the crossing/per-place cases.
++
++test('AC-4: toggling alert on requests permission; denied reverts the setting', async () => {
++  const saved: Settings[] = [];
++  const n = fakeNotifier(false);
++  const { getByTestId } = await renderAlert({
++    notifier: n,
++    sourceForPlace: fixedSource({ 1: 10 }),
++    settingsStore: {
++      load: async () => ({ ...DEFAULT_SETTINGS, loc: false, alert: false }),
++      save: async x => {
++        saved.push(x);
++      },
++    },
++    children: <AlertToggle />,
++  });
++  await act(async () => {
++    fireEvent.press(getByTestId('toggle-alert'));
++  });
++  await waitFor(() => expect(n.calls).toContain('req'));
++  await waitFor(() => expect(saved.at(-1)?.alert).toBe(false));
++});
+diff --git a/src/shared/alert/index.tsx b/src/shared/alert/index.tsx
+new file mode 100644
+index 0000000..0171286
+--- /dev/null
++++ b/src/shared/alert/index.tsx
+@@ -0,0 +1,71 @@
++import { useEffect, useRef, type ReactNode } from 'react';
++import type { ActivePlace } from '../../core/places';
++import type { Notifier } from '../../core/notifications';
++import { smogAlertDecision } from '../../core/alert';
++import { useActivePlace } from '../place';
++import { useSettings, type SettingsApi } from '../settings';
++
++// Same placeKey expression as usePlaceReading.ts — kept in sync deliberately
++// (both derive a stable per-place identity from ActivePlace).
++function placeKeyFor(place: ActivePlace): string {
++  return place.kind === 'location' ? 'location' : `station:${place.station.id}`;
++}
++
++// Requests notification permission when `alert` turns on; denial reverts the
++// toggle (persisted). Mirrors NotificationsProvider's morning-toggle effect.
++function useAlertPermission(
++  alert: boolean,
++  notifier: Notifier,
++  set: SettingsApi['set'],
++): void {
++  useEffect(() => {
++    let isActive = true;
++    if (alert) {
++      notifier.requestPermission().then(granted => {
++        if (!isActive) return;
++        if (!granted) set('alert', false);
++      });
++    }
++    return () => {
++      isActive = false;
++    };
++    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on alert; `set` intentionally excluded (not referentially stable)
++  }, [alert, notifier]);
++}
++
++// Fires a local smog notification on a rising CAQI-index crossing of
++// `threshold`, deduped per active place (spec 019 S2) and honoring quiet
++// hours + the `alert` toggle (see src/core/alert).
++export function SmogAlertProvider({
++  notifier,
++  now,
++  children,
++}: {
++  notifier: Notifier;
++  now?: () => Date;
++  children: ReactNode;
++}) {
++  const { active, status, reading } = useActivePlace();
++  const { settings, set } = useSettings();
++  const { alert, threshold } = settings;
++  const clock = now ?? (() => new Date());
++  const mapRef = useRef(new Map<string, boolean>());
++
++  useAlertPermission(alert, notifier, set);
++
++  useEffect(() => {
++    if (status !== 'ready' || !reading) return;
++    const map = mapRef.current;
++    const placeKey = placeKeyFor(active);
++    const prev = map.get(placeKey) ?? false;
++    const d = smogAlertDecision(
++      { wasAbove: prev },
++      { index: reading.index, threshold, alertOn: alert, now: clock() },
++    );
++    map.set(placeKey, d.wasAbove);
++    if (d.fire) notifier.notifySmog(reading.index);
++    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on status/reading/alert/threshold per spec; `active`/`notifier`/`clock` intentionally excluded — all three are only READ when the effect fires, not used as reactive triggers: `active` reflects the current place at fire-time, `notifier` is a stable app-level instance, and `clock` (a fresh closure each render) always samples "now" at invocation regardless of which render created it.
++  }, [status, reading, alert, threshold]);
++
++  return <>{children}</>;
++}
+diff --git a/src/shared/notifications/__tests__/NotificationsProvider.test.tsx b/src/shared/notifications/__tests__/NotificationsProvider.test.tsx
+index c42dff6..4c969dc 100644
+--- a/src/shared/notifications/__tests__/NotificationsProvider.test.tsx
++++ b/src/shared/notifications/__tests__/NotificationsProvider.test.tsx
+@@ -23,16 +23,17 @@ const fakeNotifier = (granted = true): Notifier & { calls: string[] } => {
+       return granted;
+     },
+     scheduleMorning: async () => {
+       calls.push('sched');
+     },
+     cancelMorning: async () => {
+       calls.push('cancel');
+     },
++    notifySmog: jest.fn(),
+   };
+ };
+ 
+ const wrap = (n: Notifier, s: Settings) =>
+   render(
+     <SettingsProvider store={store(s)}>
+       <NotificationsProvider notifier={n}>
+         <Text>x</Text>

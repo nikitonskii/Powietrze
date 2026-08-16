@@ -1,6 +1,6 @@
 # Spec 019: Smog alert — threshold crossing + quiet hours (foreground slice)
 
-**Status:** draft
+**Status:** implemented (AC-1..5 automated + verified); AC-6 pending sim. Journal: `docs/harness/19-smog-alert.md`
 **Milestone:** M-smog-alert (foreground slice) · **Depends on:** @notifee (ADR-013, already installed) · spec 015 (Notifier seam)
 **Sources:** `design/README.md` §3 POWIADOMIENIA + advice copy (line 74); the deferred quiet-hours from spec 015 (critic B1) lands here.
 **Critic:** SHIP-WITH-FIXES — B1 + S1–S4 + M1–M4 folded in. `.superpowers/sdd/critic-019.md`.
