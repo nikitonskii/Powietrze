@@ -1,7 +1,7 @@
 {
   "name": "react-native-widget-sync",
   "version": "0.1.0",
-  "description": "Write a JSON snapshot to an iOS App Group and reload WidgetKit timelines. New Architecture Turbo Module.",
+  "description": "Write a JSON snapshot to an iOS App Group and reload WidgetKit timelines. New-Architecture (bridgeless) native module.",
   "main": "src/index.ts",
   "react-native": "src/index.ts",
   "files": [
@@ -15,10 +15,5 @@
   "peerDependencies": {
     "react": "*",
     "react-native": "*"
-  },
-  "codegenConfig": {
-    "name": "WidgetSyncSpec",
-    "type": "modules",
-    "jsSrcsDir": "src"
   }
 }

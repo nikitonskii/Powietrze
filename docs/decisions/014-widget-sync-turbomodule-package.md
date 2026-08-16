@@ -1,4 +1,4 @@
-# ADR-014: Widget data bridge as a New-Architecture Turbo Module in a local package
+# ADR-014: Widget data bridge as a New-Architecture native module in a local package
 
 **Status:** accepted · **Date:** 2026-08-15 · **Milestone:** M-widget (native gate) · **Spec:** 017 · **Supersedes:** spec 017 Task 4's inline `NativeModules.WidgetSync` sketch
 
@@ -13,20 +13,30 @@ Two decisions were needed: (1) legacy `RCTBridgeModule` vs a New-Arch **Turbo
 Module**; (2) inline in the app vs a **local, extractable package**.
 
 ## Decision
-Build the bridge as a **Turbo Module** (`WidgetSync`) shipped in a **local package
-`react-native-widget-sync`** under `modules/`, linked into the app via a
-`file:` dependency and RN autolinking.
+Build the bridge as a **New-Architecture native module** (`WidgetSync`) shipped in a
+**local package `react-native-widget-sync`** under `modules/`, linked into the app
+via a `file:` dependency and RN autolinking.
 
-- **Turbo Module (New Arch):** a TS codegen spec (`src/NativeWidgetSync.ts`,
-  `TurboModuleRegistry.get<Spec>('WidgetSync')` — nullable `get`, not
-  `getEnforcing`, so a build without the native side degrades to a no-op),
-  `codegenConfig` in the package's `package.json`, and a Swift implementation
-  conforming to the codegen-generated ObjC protocol.
-- **Local package:** New-Arch codegen + autolinking are built around packages —
-  a package with a podspec gets its Turbo Module codegen'd and **registered
-  automatically** by `pod install`. App-inline Swift Turbo Modules need fiddly
-  manual provider wiring; the package path is *less* work, not more, and it is
-  the "split RN package" we'd extract to anyway — so we do it from the start.
+- **Native module (New Arch, interop-served):** a **Swift** implementation
+  (`ios/WidgetSync.swift`) exposed to RN via `RCT_EXTERN_MODULE` (`ios/WidgetSync.mm`).
+  Under bridgeless New Arch this legacy-registered module is served through the
+  **interop layer**, so the JS side's `TurboModuleRegistry.get<Spec>('WidgetSync')`
+  (nullable `get`, not `getEnforcing`, so a build without the native side degrades to
+  a no-op) resolves it. The TS spec (`src/NativeWidgetSync.ts`) keeps the module
+  strongly typed.
+- **Why not a pure codegen JSI Turbo Module:** two hard constraints collide.
+  `reloadTimelines` needs `WidgetCenter`, which is **Swift-only** (no ObjC surface),
+  so the impl must be Swift. But RN's codegen protocol (`NativeWidgetSyncSpec`) ships
+  inside the **C++/ObjC++ `ReactCodegen` module, which Swift cannot `import`**
+  (`error: no such module` / "must be compiled as Obj-C++"). A pure JSI Turbo Module
+  would therefore require an extra ObjC++ shim conforming to the codegen protocol and
+  forwarding to the Swift class — real glue for a two-method fire-and-forget bridge.
+  The interop path is New Arch at runtime, far simpler, and reliable. (The ObjC++
+  shim remains an available upgrade if a pure-JSI module is ever needed — noted for
+  the future package.) `codegenConfig` was consequently **removed** from the package.
+- **Local package:** autolinking is built around packages — a package with a podspec
+  is picked up automatically by `pod install`. It is also the "split RN package" we'd
+  extract to anyway, so we do it from the start.
 
 ## Boundary (what is / isn't in the package)
 - **In the package (reusable):** the `WidgetSync` Turbo Module — two methods,
@@ -50,7 +60,8 @@ no-op) if the target isn't entitled — a dev assert guards this.
 
 ## Consequences
 - One local package + `npm install` (symlinks it into `node_modules`) + `pod install`
-  (autolinks the podspec, runs New-Arch codegen). A **native rebuild** is required.
+  (autolinks the podspec). A **native rebuild** is required. (No per-module codegen —
+  the interop module doesn't use `codegenConfig`.)
 - The app's `src/data/widget` adapter changes from reading `NativeModules.WidgetSync`
   to importing the package's Turbo Module (nullable `get` preserves the no-op path
   and AC-4). Its jest test updates accordingly (mock the package/TurboModuleRegistry).

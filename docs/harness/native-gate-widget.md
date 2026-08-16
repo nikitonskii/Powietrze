@@ -15,14 +15,24 @@ sim-interaction steps that require a human.
 
 ---
 
-## Step 1 — [AI] Scaffold the local Turbo Module package
+## Step 1 — [AI] Scaffold the local package (New-Arch interop native module)
 Files under `modules/react-native-widget-sync/`:
-- `package.json` — name `react-native-widget-sync`, `codegenConfig` (`name: WidgetSyncSpec`, `type: modules`, `jsSrcsDir: src`), RN peer dep.
-- `react-native-widget-sync.podspec` — the pod (source files `ios/**/*.{swift,h,m,mm}`, `install_modules_dependencies`).
-- `src/NativeWidgetSync.ts` — the codegen TS spec (`Spec extends TurboModule`, `writeSnapshot`, `reloadTimelines`, `TurboModuleRegistry.get('WidgetSync')`).
+- `package.json` — name `react-native-widget-sync`, RN peer dep. **No `codegenConfig`** (see the pivot note below).
+- `react-native-widget-sync.podspec` — the pod (source `ios/**/*.{h,m,mm,swift}`, `install_modules_dependencies`).
+- `src/NativeWidgetSync.ts` — typed spec: `Spec extends TurboModule` (`writeSnapshot`, `reloadTimelines`) + `TurboModuleRegistry.get<Spec>('WidgetSync')` (nullable → no-op when absent).
 - `src/index.ts` — re-exports the module.
-- `ios/WidgetSync.swift` — the Swift Turbo Module: `writeSnapshot(_:)` → App-Group `UserDefaults`, `reloadTimelines()` → `WidgetCenter.reloadAllTimelines()`.
-_(Status: filled in by the package commit.)_
+- `ios/WidgetSync.swift` — `@objc(WidgetSync)` Swift class: `writeSnapshot(_:)` → App-Group `UserDefaults`, `reloadTimelines()` → `WidgetCenter.reloadAllTimelines()`, `requiresMainQueueSetup → false`.
+- `ios/WidgetSync.mm` — `RCT_EXTERN_MODULE(WidgetSync, NSObject)` + `RCT_EXTERN_METHOD` for both methods (registers the Swift class with RN; interop-served under bridgeless).
+
+> **Pivot note (documented gotcha).** First attempt was a *pure codegen JSI Turbo
+> Module* (`codegenConfig` + Swift conforming to the generated `NativeWidgetSyncSpec`).
+> It fails to build: the codegen protocol lives in the C++/ObjC++ `ReactCodegen`
+> module, and **Swift cannot import it** — `import WidgetSyncSpec` → *no such module*;
+> `import ReactCodegen` → *could not build Objective-C module 'ReactCodegen' … must be
+> compiled as Obj-C++*. And the impl **must** be Swift because `WidgetCenter` is
+> Swift-only. Resolution: drop `codegenConfig`, expose the Swift class via
+> `RCT_EXTERN_MODULE` (interop). Still New Arch at runtime. A pure-JSI module would
+> need an extra ObjC++ shim forwarding to Swift (future option).
 
 ## Step 2 — [AI] Link the package into the app
 - Add `"react-native-widget-sync": "file:modules/react-native-widget-sync"` to the app `package.json` dependencies.
@@ -53,9 +63,11 @@ Tell Claude when Steps 4–5 are done (+ confirm the generated widget file path)
   small relative-age formatter for `measuredAt`), placeholder view ("Otwórz aplikację").
 - Confirm the widget's `.entitlements` App Group string matches.
 
-## Step 7 — [AI] pod install + codegen
-- `cd ios && pod install` → autolinks `react-native-widget-sync`, runs New-Arch
-  codegen (generates the `WidgetSyncSpec` protocol the Swift module conforms to).
+## Step 7 — [AI] pod install
+- `cd ios && pod install` → autolinks `react-native-widget-sync` (no per-module
+  codegen — it's an interop module). Confirm it appears in `Podfile.lock`.
+- **Done:** package builds green (`WidgetSync.swift` + `WidgetSync.mm` compile);
+  autolinked; app builds with the module present.
 
 ## Step 8 — [AI] Build + iterate
 - `xcodebuild -workspace Powietrze.xcworkspace -scheme Powietrze -sdk iphonesimulator -destination 'id=<sim>' build` — fix compile/codegen errors.
