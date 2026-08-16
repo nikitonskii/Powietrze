@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -48,6 +49,14 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
   const settleActive = useCallback(() => {
     if (refreshingRef.current) clear();
   }, [clear]);
+
+  // Cancel a pending safety timeout if the provider ever unmounts.
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   const api = useMemo<RefreshApi>(
     () => ({ refresh, refreshing, settleActive }),
