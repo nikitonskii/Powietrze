@@ -30,19 +30,21 @@ export function NumberGlow({
   const r = size / 2;
   return (
     <View style={styles.wrap}>
-      <Canvas
-        testID="number-glow"
-        style={[styles.glow, { width: size, height: size }]}
-      >
-        <Circle cx={r} cy={r} r={r}>
-          <RadialGradient
-            c={vec(r, r)}
-            r={r}
-            positions={[0, GLOW_TRANSPARENT_STOP]}
-            colors={[`${color}${alphaHex}`, `${color}00`]}
-          />
-        </Circle>
-      </Canvas>
+      {/* Absolute-fill overlay that flex-centers the oversized glow Canvas on the
+          number. Without it the absolute Canvas anchors its top-left to the digits,
+          so the halo renders down-and-right and looks cut off above the number. */}
+      <View style={styles.glow} pointerEvents="none">
+        <Canvas testID="number-glow" style={{ width: size, height: size }}>
+          <Circle cx={r} cy={r} r={r}>
+            <RadialGradient
+              c={vec(r, r)}
+              r={r}
+              positions={[0, GLOW_TRANSPARENT_STOP]}
+              colors={[`${color}${alphaHex}`, `${color}00`]}
+            />
+          </Circle>
+        </Canvas>
+      </View>
       {children}
     </View>
   );
@@ -50,5 +52,13 @@ export function NumberGlow({
 
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', justifyContent: 'center' },
-  glow: { position: 'absolute' },
+  glow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
