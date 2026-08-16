@@ -23,7 +23,9 @@ const ApiCtx = createContext<RefreshApi>({
   settleActive: () => {},
 });
 
-export function RefreshProvider({ children }: { children: ReactNode }) {
+// The refresh state machine (signal + refreshing lifecycle), extracted so the
+// provider component stays a thin composition.
+function useRefreshState(): { signal: number; api: RefreshApi } {
   const [signal, setSignal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -50,7 +52,7 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
     if (refreshingRef.current) clear();
   }, [clear]);
 
-  // Cancel a pending safety timeout if the provider ever unmounts.
+  // Cancel a pending safety timeout if the provider ever unmounts (no setState).
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
@@ -62,6 +64,11 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
     () => ({ refresh, refreshing, settleActive }),
     [refresh, refreshing, settleActive],
   );
+  return { signal, api };
+}
+
+export function RefreshProvider({ children }: { children: ReactNode }) {
+  const { signal, api } = useRefreshState();
   return (
     <SignalCtx.Provider value={signal}>
       <ApiCtx.Provider value={api}>{children}</ApiCtx.Provider>

@@ -114,6 +114,51 @@ test('AC-2: usePlaceDetail refetches when the signal bumps, not on an unrelated 
   expect(calls).toBe(2);
 });
 
+test('AC-2: a same-place refresh keeps the current detail during the refetch (no flicker)', async () => {
+  let call = 0;
+  let resolveSecond: (d: ReadingDetail) => void = () => {};
+  const sfp: SourceForPlace = () => ({
+    getCurrentReading: async () => READING,
+    getDetail: () => {
+      call += 1;
+      if (call === 1) return Promise.resolve(detail);
+      return new Promise<ReadingDetail>(res => {
+        resolveSecond = res;
+      });
+    },
+  });
+  const { result } = await renderHook(
+    () => ({ d: usePlaceDetail(LOCATION_PLACE), r: useRefresh() }),
+    {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <RefreshProvider>
+          <PlaceSourceProvider sourceForPlace={sfp}>
+            {children}
+          </PlaceSourceProvider>
+        </RefreshProvider>
+      ),
+    },
+  );
+  await waitFor(() => expect(result.current.d.detail).toEqual(detail));
+
+  // Same-place refresh: the second getDetail stays pending. Detail must NOT
+  // blank to undefined mid-flight (the pre-fix bug flickered the chart/tiles).
+  await act(async () => {
+    result.current.r.refresh();
+  });
+  expect(result.current.d.detail).toEqual(detail);
+
+  // Once the refetch resolves, the new value replaces the old.
+  const detail2: ReadingDetail = {
+    history: detail.history,
+    pollutants: [{ code: 'PM10', value: 99 }],
+  };
+  await act(async () => {
+    resolveSecond(detail2);
+  });
+  await waitFor(() => expect(result.current.d.detail).toEqual(detail2));
+});
+
 test('AC-2: unwrapped (no RefreshProvider) — usePlaceDetail still works, 1 call, no throw', async () => {
   let calls = 0;
   const sfp: SourceForPlace = () => ({
