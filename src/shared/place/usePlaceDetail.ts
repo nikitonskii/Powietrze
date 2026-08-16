@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReadingDetail } from '../../core/air';
 import type { ActivePlace } from '../../core/places';
+import { useRefreshSignal } from '../refresh';
 import { useSourceForPlace } from './PlaceSourceContext';
 
 // Fetches rich detail (24h history + PM10/NO2) for the ACTIVE place only, once
@@ -8,6 +9,7 @@ import { useSourceForPlace } from './PlaceSourceContext';
 // → detail stays undefined (Teraz degrades to Hero-only).
 export function usePlaceDetail(place: ActivePlace): { detail?: ReadingDetail } {
   const sourceForPlace = useSourceForPlace();
+  const signal = useRefreshSignal();
   const [detail, setDetail] = useState<ReadingDetail | undefined>(undefined);
   const placeKey =
     place.kind === 'location' ? 'location' : `station:${place.station.id}`;
@@ -22,6 +24,6 @@ export function usePlaceDetail(place: ActivePlace): { detail?: ReadingDetail } {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
-  }, [sourceForPlace, placeKey]);
+  }, [sourceForPlace, placeKey, signal]);
   return { detail };
 }

@@ -1,5 +1,13 @@
-import { renderHook, act, waitFor } from '@testing-library/react-native';
+import {
+  renderHook,
+  render,
+  screen,
+  act,
+  fireEvent,
+  waitFor,
+} from '@testing-library/react-native';
 import type { ReactNode } from 'react';
+import { Pressable, Text } from 'react-native';
 import { usePlaceDetail } from '../usePlaceDetail';
 import {
   PlaceSourceProvider,
@@ -7,6 +15,7 @@ import {
 } from '../PlaceSourceContext';
 import { LOCATION_PLACE } from '../../../core/places';
 import type { Reading, ReadingDetail } from '../../../core/air';
+import { RefreshProvider, useRefresh } from '../../refresh';
 
 // Minimal real Reading (not `{} as any`) — getCurrentReading is unused by
 // usePlaceDetail, but the stub source must still satisfy AirQualitySource.
@@ -66,4 +75,57 @@ test('AC-7: rejected getDetail → detail undefined (no throw)', async () => {
   });
   await act(async () => {});
   expect(result.current.detail).toBeUndefined();
+});
+
+function RefreshDetailHarness() {
+  const { refresh } = useRefresh();
+  usePlaceDetail(LOCATION_PLACE);
+  return (
+    <Pressable testID="refresh-btn" onPress={refresh}>
+      <Text>refresh</Text>
+    </Pressable>
+  );
+}
+
+test('AC-2: usePlaceDetail refetches when the signal bumps, not on an unrelated re-render', async () => {
+  let calls = 0;
+  const sfp: SourceForPlace = () => ({
+    getCurrentReading: async () => READING,
+    getDetail: async () => {
+      calls += 1;
+      return detail;
+    },
+  });
+
+  await render(
+    <RefreshProvider>
+      <PlaceSourceProvider sourceForPlace={sfp}>
+        <RefreshDetailHarness />
+      </PlaceSourceProvider>
+    </RefreshProvider>,
+  );
+  await waitFor(() => expect(calls).toBe(1));
+
+  await fireEvent.press(screen.getByTestId('refresh-btn'));
+  await waitFor(() => expect(calls).toBe(2));
+
+  // The second press is debounced by RefreshProvider (signal unchanged) — no refetch.
+  await fireEvent.press(screen.getByTestId('refresh-btn'));
+  expect(calls).toBe(2);
+});
+
+test('AC-2: unwrapped (no RefreshProvider) — usePlaceDetail still works, 1 call, no throw', async () => {
+  let calls = 0;
+  const sfp: SourceForPlace = () => ({
+    getCurrentReading: async () => READING,
+    getDetail: async () => {
+      calls += 1;
+      return detail;
+    },
+  });
+  const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
+    wrapper: wrap(sfp),
+  });
+  await waitFor(() => expect(result.current.detail).toEqual(detail));
+  expect(calls).toBe(1);
 });

@@ -3,6 +3,7 @@ import {
   screen,
   waitFor,
   fireEvent,
+  act,
 } from '@testing-library/react-native';
 import { Text, Pressable } from 'react-native';
 import {
@@ -18,6 +19,7 @@ import {
   type Settings,
   type SettingsStore,
 } from '../../../core/settings';
+import { RefreshProvider, useRefresh } from '../../refresh';
 
 const store = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
   load: async () => s,
@@ -143,5 +145,57 @@ test('AC-6: turning loc off resets active to the default station', async () => {
   fireEvent.press(screen.getByTestId('toggle-loc'));
   await waitFor(() =>
     expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
+  );
+});
+
+function RefreshProbe() {
+  const { refreshing, refresh } = useRefresh();
+  return (
+    <>
+      <Text testID="refreshing">{refreshing ? 'true' : 'false'}</Text>
+      <Pressable testID="refresh-btn" onPress={refresh}>
+        <Text>refresh</Text>
+      </Pressable>
+    </>
+  );
+}
+
+test('AC-3/AC-3b: refreshing is false during initial load, true after refresh(), false once the active reading resettles', async () => {
+  let callCount = 0;
+  let resolveSecond: ((r: Reading) => void) | undefined;
+  const refreshingSourceForPlace: SourceForPlace = () => ({
+    getCurrentReading: () => {
+      callCount += 1;
+      if (callCount === 1) return Promise.resolve(rLoc);
+      return new Promise<Reading>(resolve => {
+        resolveSecond = resolve;
+      });
+    },
+  });
+
+  await render(
+    <RefreshProvider>
+      <PlaceSourceProvider sourceForPlace={refreshingSourceForPlace}>
+        <SettingsProvider store={store()}>
+          <ActivePlaceProvider>
+            <RefreshProbe />
+          </ActivePlaceProvider>
+        </SettingsProvider>
+      </PlaceSourceProvider>
+    </RefreshProvider>,
+  );
+  expect(screen.getByTestId('refreshing').props.children).toBe('false');
+  await waitFor(() => expect(callCount).toBe(1));
+  expect(screen.getByTestId('refreshing').props.children).toBe('false');
+
+  await fireEvent.press(screen.getByTestId('refresh-btn'));
+  expect(callCount).toBe(2);
+  expect(screen.getByTestId('refreshing').props.children).toBe('true');
+
+  await act(async () => {
+    resolveSecond?.(rWaw);
+  });
+  await waitFor(() =>
+    expect(screen.getByTestId('refreshing').props.children).toBe('false'),
   );
 });

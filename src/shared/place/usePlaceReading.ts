@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Reading } from '../../core/air';
 import type { ActivePlace } from '../../core/places';
+import { useRefreshSignal } from '../refresh';
 import { useSourceForPlace } from './PlaceSourceContext';
 
 export type ReadingState =
@@ -15,6 +16,7 @@ export type ReadingState =
 // row) does NOT refire the fetch on unrelated re-renders.
 export function usePlaceReading(place: ActivePlace): ReadingState {
   const sourceForPlace = useSourceForPlace();
+  const signal = useRefreshSignal();
   const [state, setState] = useState<ReadingState>({ status: 'loading' });
   const placeKey =
     place.kind === 'location' ? 'location' : `station:${place.station.id}`;
@@ -32,6 +34,6 @@ export function usePlaceReading(place: ActivePlace): ReadingState {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
-  }, [sourceForPlace, placeKey]);
+  }, [sourceForPlace, placeKey, signal]);
   return state;
 }
