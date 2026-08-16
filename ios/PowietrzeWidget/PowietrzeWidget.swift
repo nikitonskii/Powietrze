@@ -101,7 +101,7 @@ struct PlaceholderView: View {
   }
 }
 
-private func snapshotBackground(_ s: WidgetSnapshot) -> LinearGradient {
+func snapshotBackground(_ s: WidgetSnapshot) -> LinearGradient {
   LinearGradient(
     colors: [Color(hex: s.deepHex), Color(hex: s.midHex)],
     startPoint: .top, endPoint: .bottom
@@ -165,10 +165,20 @@ struct PowietrzeWidgetEntryView: View {
     if let s = entry.snapshot {
       switch family {
       case .systemSmall: SmallView(s: s)
+      case .systemLarge: LargeView(s: s)
+      case .accessoryCircular: AccessoryCircularView(s: s)
+      case .accessoryRectangular: AccessoryRectangularView(s: s)
+      case .accessoryInline: AccessoryInlineView(s: s)
       default: MediumView(s: s)
       }
     } else {
-      PlaceholderView()
+      switch family {
+      case .accessoryInline:
+        Text("Powietrze —").containerBackground(.clear, for: .widget)
+      case .accessoryCircular, .accessoryRectangular:
+        Text("—").containerBackground(.clear, for: .widget)
+      default: PlaceholderView()
+      }
     }
   }
 }
@@ -181,6 +191,9 @@ struct PowietrzeWidget: Widget {
     }
     .configurationDisplayName("Powietrze")
     .description("Jakość powietrza dla Twojego miejsca.")
-    .supportedFamilies([.systemSmall, .systemMedium])
+    .supportedFamilies([
+      .systemSmall, .systemMedium, .systemLarge,
+      .accessoryCircular, .accessoryRectangular, .accessoryInline,
+    ])
   }
 }
