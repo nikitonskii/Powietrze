@@ -96,24 +96,18 @@ function PowiadomieniaGroup({ settings, set }: GroupProps) {
       <ToggleRow
         keyName="alert"
         title="Alert smogowy"
-        soon
         testID="toggle-alert"
         value={settings.alert}
         onValueChange={v => set('alert', v)}
       />
-      <StackedRow keyName="threshold" title="Próg alertu" soon>
+      <StackedRow keyName="threshold" title="Próg alertu">
         <ThresholdSlider
           testID="slider-threshold"
           value={settings.threshold}
           onChange={v => set('threshold', v)}
         />
       </StackedRow>
-      <SettingRow
-        keyName="quiet"
-        title="Godziny ciszy"
-        soon
-        value="22:00 – 07:00"
-      />
+      <SettingRow keyName="quiet" title="Godziny ciszy" value="22:00 – 07:00" />
       <ToggleRow
         keyName="morning"
         title="Poranne podsumowanie"

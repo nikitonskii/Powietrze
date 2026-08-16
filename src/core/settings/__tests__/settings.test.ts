@@ -11,12 +11,16 @@ import {
 test('AC-1: DEFAULT_SETTINGS pins the design default state (literal fixture)', () => {
   expect(DEFAULT_SETTINGS).toEqual({
     loc: true,
-    alert: true,
+    alert: false,
     morning: false,
     precision: 'Przybliżona',
     scale: 'CAQI',
     threshold: 100,
   });
+});
+
+test('AC-5: DEFAULT_SETTINGS.alert defaults to opt-in false (no unprompted permission dialog)', () => {
+  expect(DEFAULT_SETTINGS.alert).toBe(false);
 });
 
 test('AC-2: clampThreshold rounds and clamps, NaN→default, ±Infinity clamp', () => {
@@ -46,9 +50,10 @@ test('AC-3: slider math is pure, clamped, rounded, round-trips', () => {
 
 test('AC-4: mergeSettings fills defaults, validates types/enums, clamps, drops unknowns', () => {
   expect(mergeSettings({})).toEqual(DEFAULT_SETTINGS);
+  expect(mergeSettings({}).alert).toBe(false);
   expect(mergeSettings({ alert: false }).alert).toBe(false);
   expect(mergeSettings({ alert: false }).loc).toBe(true);
-  expect(mergeSettings({ alert: 'yes' }).alert).toBe(true);
+  expect(mergeSettings({ alert: 'yes' }).alert).toBe(false);
   expect(mergeSettings({ scale: 'ZZZ' }).scale).toBe('CAQI');
   expect(mergeSettings({ threshold: 5000 }).threshold).toBe(200);
   expect(

@@ -79,7 +79,7 @@ test('AC-19: toggling Alert smogowy persists alert inverted', async () => {
   const s = store();
   await renderScreen(s);
   fireEvent.press(screen.getByTestId('toggle-alert'));
-  await waitFor(() => expect(s.saved.at(-1)?.alert).toBe(false));
+  await waitFor(() => expect(s.saved.at(-1)?.alert).toBe(true));
 });
 
 test('AC-20: choosing Dokładna persists precision', async () => {
@@ -89,12 +89,12 @@ test('AC-20: choosing Dokładna persists precision', async () => {
   await waitFor(() => expect(s.saved.at(-1)?.precision).toBe('Dokładna'));
 });
 
-test('AC-5: Wkrótce tags only on still-unwired rows (alert, threshold, quiet); morning is now live', async () => {
+test('AC-5: no Wkrótce tags remain — alert, threshold, quiet are now live like morning', async () => {
   await renderScreen(store());
-  for (const k of ['alert', 'threshold', 'quiet']) {
-    expect(screen.getByTestId(`wkrotce-${k}`)).toBeTruthy();
-  }
   for (const k of [
+    'alert',
+    'threshold',
+    'quiet',
     'morning',
     'loc',
     'precision',

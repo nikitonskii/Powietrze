@@ -15,7 +15,7 @@ export const THRESHOLD_MAX = 200;
 
 export const DEFAULT_SETTINGS: Settings = {
   loc: true,
-  alert: true,
+  alert: false,
   morning: false,
   precision: 'Przybliżona',
   scale: 'CAQI',
