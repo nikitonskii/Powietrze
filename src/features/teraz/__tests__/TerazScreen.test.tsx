@@ -1,4 +1,9 @@
-import { render, screen, within } from '@testing-library/react-native';
+import {
+  render,
+  screen,
+  within,
+  fireEvent,
+} from '@testing-library/react-native';
 import { TerazScreen } from '../TerazScreen';
 import { SettingsProvider } from '../../../shared/settings';
 import {
@@ -10,12 +15,42 @@ import {
   PlaceSourceProvider,
   ActivePlaceProvider,
 } from '../../../shared/place';
+import { RefreshProvider } from '../../../shared/refresh';
 import type { AirQualitySource, ReadingDetail } from '../../../core/air';
 import { usAqiFromPm25 } from '../../../core/air';
 import {
   fakeAirSource,
   pendingAirSource,
 } from '../../../shared/test/fakeAirSource';
+
+// The RN jest preset's RefreshControl mock renders a bare host node and
+// drops every prop (including testID), so the real one is unqueryable.
+// Forward the props we need to assert wiring (testID/refreshing/onRefresh).
+jest.mock(
+  'react-native/Libraries/Components/RefreshControl/RefreshControl',
+  () => {
+    // Require the View submodule directly (already mocked by the RN jest
+    // preset) — going through the 'react-native' index would re-import this
+    // very module and create a circular reference.
+    const View = require('react-native/Libraries/Components/View/View').default;
+    function RefreshControl(props: {
+      testID?: string;
+      refreshing: boolean;
+      onRefresh?: () => void;
+    }) {
+      return (
+        <View
+          testID={props.testID}
+          accessibilityState={{ busy: props.refreshing }}
+          onPress={props.onRefresh}
+        />
+      );
+    }
+    // react-native/index.js reads `require(path).default` directly (no
+    // babel interop), so the mock must expose an explicit default export.
+    return { __esModule: true, default: RefreshControl };
+  },
+);
 
 const detail: ReadingDetail = {
   history: [
@@ -39,13 +74,15 @@ const settingsStore = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
 
 const wrap = (src: () => AirQualitySource, s: Settings = DEFAULT_SETTINGS) =>
   render(
-    <SettingsProvider store={settingsStore(s)}>
-      <PlaceSourceProvider sourceForPlace={src}>
-        <ActivePlaceProvider>
-          <TerazScreen />
-        </ActivePlaceProvider>
-      </PlaceSourceProvider>
-    </SettingsProvider>,
+    <RefreshProvider>
+      <SettingsProvider store={settingsStore(s)}>
+        <PlaceSourceProvider sourceForPlace={src}>
+          <ActivePlaceProvider>
+            <TerazScreen />
+          </ActivePlaceProvider>
+        </PlaceSourceProvider>
+      </SettingsProvider>
+    </RefreshProvider>,
   );
 
 test('spec-002 AC-8: renders the live reading — index, band, city, real pm25, atmosphere', async () => {
@@ -99,4 +136,30 @@ test('AC-5,7: scale US AQI → hero number is usAqiFromPm25(pm25)', async () => 
   const gradient = await screen.findByTestId('gradient-background');
   expect(within(gradient).getByText(String(usAqiFromPm25(122)))).toBeTruthy();
   expect(within(gradient).getByText('Zły')).toBeTruthy(); // band stays scene(reading.index)
+});
+
+test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
+  let calls = 0;
+  const countingSource = (): AirQualitySource => ({
+    getCurrentReading: () => {
+      calls++;
+      return fakeAirSource().getCurrentReading();
+    },
+  });
+  await wrap(() => countingSource());
+  await screen.findByTestId('gradient-background');
+  expect(calls).toBe(1);
+  expect(
+    screen.getByTestId('refresh-control').props.accessibilityState.busy,
+  ).toBe(false); // no refresh in flight yet
+
+  // Pull-to-refresh: the RefreshControl's onRefresh is useRefresh().refresh —
+  // firing it re-triggers the active place's fetch (proves the wiring).
+  await fireEvent.press(screen.getByTestId('refresh-control'));
+  expect(calls).toBe(2);
+  // The active fetch settled within the same act() flush → refreshing is
+  // back to false (ActivePlaceProvider's settleActive cleared it).
+  expect(
+    screen.getByTestId('refresh-control').props.accessibilityState.busy,
+  ).toBe(false);
 });

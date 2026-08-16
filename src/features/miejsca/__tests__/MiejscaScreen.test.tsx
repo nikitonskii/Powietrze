@@ -14,6 +14,7 @@ import {
   StationsProvider,
   type SourceForPlace,
 } from '../../../shared/place';
+import { RefreshProvider } from '../../../shared/refresh';
 import { SettingsProvider } from '../../../shared/settings';
 import { DEFAULT_SETTINGS, type SettingsStore } from '../../../core/settings';
 import type { FavoritesStore } from '../../../core/places';
@@ -46,6 +47,35 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
+// The RN jest preset's RefreshControl mock renders a bare host node and
+// drops every prop (including testID), so the real one is unqueryable.
+// Forward the props we need to assert wiring (testID/refreshing/onRefresh).
+jest.mock(
+  'react-native/Libraries/Components/RefreshControl/RefreshControl',
+  () => {
+    // Require the View submodule directly (already mocked by the RN jest
+    // preset) — going through the 'react-native' index would re-import this
+    // very module and create a circular reference.
+    const View = require('react-native/Libraries/Components/View/View').default;
+    function RefreshControl(props: {
+      testID?: string;
+      refreshing: boolean;
+      onRefresh?: () => void;
+    }) {
+      return (
+        <View
+          testID={props.testID}
+          accessibilityState={{ busy: props.refreshing }}
+          onPress={props.onRefresh}
+        />
+      );
+    }
+    // react-native/index.js reads `require(path).default` directly (no
+    // babel interop), so the mock must expose an explicit default export.
+    return { __esModule: true, default: RefreshControl };
+  },
+);
+
 const w = S.find(s => s.id === 530)!; // Warszawa
 const g = S.find(s => s.id === 706)!; // Gdańsk
 
@@ -65,25 +95,52 @@ const settingsStore: SettingsStore = {
   load: async () => DEFAULT_SETTINGS,
   save: async () => {},
 };
-const renderScreen = (store: FavoritesStore) =>
+const renderScreen = (
+  store: FavoritesStore,
+  sourceForPlace: SourceForPlace = sfp,
+) =>
   render(
-    <SettingsProvider store={settingsStore}>
-      <StationsProvider stations={S}>
-        <PlaceSourceProvider sourceForPlace={sfp}>
-          <FavoritesProvider store={store}>
-            <ActivePlaceProvider>
-              <MiejscaScreen />
-            </ActivePlaceProvider>
-          </FavoritesProvider>
-        </PlaceSourceProvider>
-      </StationsProvider>
-    </SettingsProvider>,
+    <RefreshProvider>
+      <SettingsProvider store={settingsStore}>
+        <StationsProvider stations={S}>
+          <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+            <FavoritesProvider store={store}>
+              <ActivePlaceProvider>
+                <MiejscaScreen />
+              </ActivePlaceProvider>
+            </FavoritesProvider>
+          </PlaceSourceProvider>
+        </StationsProvider>
+      </SettingsProvider>
+    </RefreshProvider>,
   );
 
 test('AC 006-8: default shows the pinned location row and the empty hint', async () => {
   await renderScreen(makeStore());
   expect(screen.getByText('Twoja lokalizacja')).toBeTruthy();
   expect(screen.getByText('Wyszukaj i dodaj miejsce')).toBeTruthy();
+});
+
+test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
+  let calls = 0;
+  const countingSfp: SourceForPlace = () => ({
+    getCurrentReading: () => {
+      calls++;
+      return Promise.resolve(anyReading);
+    },
+  });
+  await renderScreen(makeStore(), countingSfp);
+  // Initial mount: the pinned location row AND ActivePlaceProvider's active
+  // reading both fetch the location place once.
+  await waitFor(() => expect(calls).toBe(2));
+  expect(
+    screen.getByTestId('refresh-control').props.accessibilityState.busy,
+  ).toBe(false);
+
+  // Pull-to-refresh: the RefreshControl's onRefresh is useRefresh().refresh —
+  // firing it re-triggers both fetches (proves the wiring).
+  await fireEvent.press(screen.getByTestId('refresh-control'));
+  expect(calls).toBe(4);
 });
 
 test('AC 006-9: search filters, + adds a favorite (persists), tap previews + navigates', async () => {

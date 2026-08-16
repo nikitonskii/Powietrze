@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { scene } from '../../core/scene';
 import {
   displayValue,
@@ -12,12 +12,14 @@ import { HistoryChart } from '../../shared/ui/HistoryChart';
 import { PollutantTiles } from '../../shared/ui/PollutantTiles';
 import { colors, spacing } from '../../shared/tokens';
 import { useActivePlace } from '../../shared/place';
+import { useRefresh } from '../../shared/refresh';
 import { useSettings } from '../../shared/settings';
 import { Hero } from './Hero';
 
 export function TerazScreen() {
   const { active, reading, detail } = useActivePlace();
   const { settings } = useSettings();
+  const { refresh, refreshing } = useRefresh();
   if (!reading) {
     return <View testID="teraz-loading" style={styles.loading} />;
   }
@@ -46,7 +48,17 @@ export function TerazScreen() {
   return (
     <GradientBackground scene={s}>
       <Atmosphere scene={s} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+            tintColor={colors.text.dim}
+            testID="refresh-control"
+          />
+        }
+      >
         <Hero
           scene={s}
           place={place}
