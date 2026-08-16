@@ -3,6 +3,13 @@ module.exports = {
   // Steer react-native-worklets imports to the JS (non-native) module so the
   // worklets TurboModule proxy isn't required under Jest (Reanimated 4).
   resolver: 'react-native-worklets/jest/resolver.js',
+  // Narrower than the default `**/__tests__/**/*` — require the `.test.`
+  // suffix so shared test-only helper modules (e.g. a `harness.tsx` a suite
+  // imports from) can live alongside spec files in `__tests__/` without
+  // Jest treating them as suites of their own. Matches every existing spec
+  // file already (all named `*.test.{ts,tsx}`), so this is a no-op for
+  // current discovery.
+  testMatch: ['**/__tests__/**/*.test.[jt]s?(x)'],
   setupFiles: [
     '<rootDir>/jest.setup.js',
     '@shopify/react-native-skia/jestSetup.js',

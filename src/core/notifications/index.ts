@@ -6,6 +6,7 @@ export interface Notifier {
   requestPermission(): Promise<boolean>;
   scheduleMorning(time?: string): Promise<void>;
   cancelMorning(): Promise<void>;
+  notifySmog(index: number): Promise<void>;
 }
 
 // Epoch-ms of the NEXT occurrence of HH:MM in LOCAL wall-clock time: today if

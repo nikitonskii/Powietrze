@@ -69,4 +69,24 @@ describe('createNotifeeNotifier (AC-3)', () => {
       createNotifeeNotifier(() => FIXED_NOW).requestPermission(),
     ).resolves.toBe(false);
   });
+
+  test('AC-3: notifySmog creates the smog channel then displays the approved copy', async () => {
+    await createNotifeeNotifier(() => FIXED_NOW).notifySmog(42);
+
+    expect(notifee.createChannel).toHaveBeenCalledTimes(1);
+    expect(notifee.createChannel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'powietrze-smog' }),
+    );
+    expect(notifee.displayNotification).toHaveBeenCalledTimes(1);
+    const [notification] = (notifee.displayNotification as jest.Mock).mock
+      .calls[0];
+    expect(notification.body).toBe(
+      'Ogranicz długie i intensywne aktywności na zewnątrz.',
+    );
+    expect(notification.android.channelId).toBe('powietrze-smog');
+
+    // Other Notifier methods untouched by notifySmog.
+    expect(notifee.createTriggerNotification).not.toHaveBeenCalled();
+    expect(notifee.cancelTriggerNotification).not.toHaveBeenCalled();
+  });
 });

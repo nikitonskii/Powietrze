@@ -28,6 +28,7 @@ const fakeNotifier = (granted = true): Notifier & { calls: string[] } => {
     cancelMorning: async () => {
       calls.push('cancel');
     },
+    notifySmog: jest.fn(),
   };
 };
 
