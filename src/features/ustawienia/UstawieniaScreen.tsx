@@ -15,7 +15,6 @@ function ToggleRow({
   keyName,
   title,
   subtitle,
-  soon,
   testID,
   value,
   onValueChange,
@@ -23,7 +22,6 @@ function ToggleRow({
   keyName: string;
   title: string;
   subtitle?: string;
-  soon?: boolean;
   testID: string;
   value: boolean;
   onValueChange: (next: boolean) => void;
@@ -33,7 +31,6 @@ function ToggleRow({
       keyName={keyName}
       title={title}
       subtitle={subtitle}
-      soon={soon}
       trailing={
         <Toggle testID={testID} value={value} onValueChange={onValueChange} />
       }
@@ -45,23 +42,16 @@ function ToggleRow({
 function StackedRow({
   keyName,
   title,
-  soon,
   children,
 }: {
   keyName: string;
   title: string;
-  soon?: boolean;
   children: ReactNode;
 }) {
   return (
     <View testID={`setting-${keyName}`} style={styles.stacked}>
       <View style={styles.titleLine}>
         <Text style={rowHeaderStyles.title}>{title}</Text>
-        {soon && (
-          <Text testID={`wkrotce-${keyName}`} style={rowHeaderStyles.soon}>
-            Wkrótce
-          </Text>
-        )}
       </View>
       {children}
     </View>
