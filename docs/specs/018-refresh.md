@@ -1,6 +1,6 @@
 # Spec 018: Pull-to-refresh + freshness on Teraz/Miejsca
 
-**Status:** draft
+**Status:** implemented (AC-1..4 automated + verified); AC-5..6 pending sim. Journal: `docs/harness/18-refresh.md`
 **Milestone:** M-refresh · **No new dependency** (RN `RefreshControl` is on board)
 **Sources:** existing `usePlaceReading`/`usePlaceDetail` fetch model; `formatFreshness` (`src/core/air`); spec 004 (refresh deferred there)
 **Critic:** REWORK → resolved. Adopted the active-place-tied lifecycle (dropped the in-flight counter — B1 underflow); `useRefreshSignal()` defaults to `0` unwrapped so no existing test breaks (B2). S1–S5 folded. `.superpowers/sdd/critic-018.md`.

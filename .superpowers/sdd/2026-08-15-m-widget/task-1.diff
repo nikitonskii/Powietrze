@@ -1,0 +1,176 @@
+### commits
+c09b450 feat(core): widget snapshot builder + identity + WidgetSync seam (AC-1, AC-2)
+
+### diff
+diff --git a/src/core/widget/__tests__/snapshot.test.ts b/src/core/widget/__tests__/snapshot.test.ts
+new file mode 100644
+index 0000000..9ad9684
+--- /dev/null
++++ b/src/core/widget/__tests__/snapshot.test.ts
+@@ -0,0 +1,89 @@
++import {
++  buildWidgetSnapshot,
++  widgetSnapshotIdentity,
++  WIDGET_SNAPSHOT_VERSION,
++} from '..';
++import type { ReadingDetail } from '../../air';
++import { displayValue, scaleLabel } from '../../air';
++import { scene, bandOf, BANDS } from '../../scene';
++
++const reading = {
++  index: 63,
++  pm25: 65,
++  measuredAt: '2026-08-15 12:00:00',
++  city: 'Kraków',
++  station: 'Aleja Krasińskiego',
++};
++const detail: ReadingDetail = {
++  history: [],
++  pollutants: [
++    { code: 'PM10', value: 13 },
++    { code: 'NO2', value: 29 },
++  ],
++};
++
++test('AC-1: buildWidgetSnapshot bakes every field from reading/detail/settings', () => {
++  const s = buildWidgetSnapshot(reading, detail, 'µg/m³', 'Przybliżona');
++  expect(s.version).toBe(WIDGET_SNAPSHOT_VERSION);
++  expect(s.city).toBe('Kraków');
++  expect(s.stationLabel).toBe('Aleja Krasińskiego');
++  expect(s.measuredAt).toBe('2026-08-15 12:00:00');
++  expect(s.displayValue).toBe(displayValue(63, 65, 'µg/m³', 'Przybliżona'));
++  expect(s.scaleCaption).toBe(scaleLabel('µg/m³'));
++  expect(s.band).toBe(BANDS[bandOf(63)]);
++  expect(s.keyHex).toBe(scene(63).key);
++  expect(s.deepHex).toBe(scene(63).deep);
++  expect(s.midHex).toBe(scene(63).mid);
++  expect(s.tiles).toEqual([
++    { label: 'PM10', value: '13', unit: 'µg/m³' },
++    { label: 'NO₂', value: '29', unit: 'µg/m³' },
++  ]);
++});
++
++test('AC-1: no detail → empty tiles', () => {
++  expect(
++    buildWidgetSnapshot(reading, undefined, 'CAQI', 'Przybliżona').tiles,
++  ).toEqual([]);
++});
++
++test('AC-2: color + band + displayValue pinned across bands (app↔widget contract)', () => {
++  for (const [index, key, band] of [
++    [7, '#5fe3a1', 'Bardzo dobry'],
++    [63, '#f5c63d', 'Umiarkowany'],
++    [175, '#c77dff', 'Bardzo zły'],
++  ] as const) {
++    const s = buildWidgetSnapshot(
++      { ...reading, index },
++      undefined,
++      'CAQI',
++      'Przybliżona',
++    );
++    expect(s.keyHex).toBe(key);
++    expect(s.band).toBe(band);
++    expect(s.keyHex).toBe(scene(index).key);
++    expect(s.displayValue).toBe(
++      displayValue(index, reading.pm25, 'CAQI', 'Przybliżona'),
++    );
++  }
++});
++
++test('AC-3(core): identity changes with place/measuredAt/scale/precision, stable otherwise', () => {
++  const a = buildWidgetSnapshot(reading, detail, 'CAQI', 'Przybliżona');
++  const b = buildWidgetSnapshot(reading, detail, 'CAQI', 'Przybliżona');
++  expect(widgetSnapshotIdentity(a)).toBe(widgetSnapshotIdentity(b));
++  expect(
++    widgetSnapshotIdentity(
++      buildWidgetSnapshot(reading, detail, 'µg/m³', 'Przybliżona'),
++    ),
++  ).not.toBe(widgetSnapshotIdentity(a)); // scale → displayValue changes → identity changes
++  expect(
++    widgetSnapshotIdentity(
++      buildWidgetSnapshot(
++        { ...reading, measuredAt: '2026-08-15 13:00:00' },
++        detail,
++        'CAQI',
++        'Przybliżona',
++      ),
++    ),
++  ).not.toBe(widgetSnapshotIdentity(a));
++});
+diff --git a/src/core/widget/index.ts b/src/core/widget/index.ts
+new file mode 100644
+index 0000000..8bebf18
+--- /dev/null
++++ b/src/core/widget/index.ts
+@@ -0,0 +1,71 @@
++import type { Reading, ReadingDetail } from '../air';
++import { displayValue, scaleLabel, formatPollutant, POLLUTANTS } from '../air';
++import { scene, bandOf, BANDS } from '../scene';
++import type { Scale, Precision } from '../settings';
++
++export const WIDGET_SNAPSHOT_VERSION = 1;
++
++export interface WidgetTile {
++  label: string;
++  value: string;
++  unit: string;
++}
++
++export interface WidgetSnapshot {
++  version: number;
++  city: string;
++  stationLabel: string;
++  displayValue: string;
++  scaleCaption: string;
++  band: string;
++  keyHex: string;
++  deepHex: string;
++  midHex: string;
++  tiles: WidgetTile[];
++  measuredAt: string;
++}
++
++// The seam features/shared use to publish a snapshot; the native module
++// implements it, a fake in tests.
++export interface WidgetSync {
++  publish(snapshot: WidgetSnapshot): void;
++}
++
++// Pure builder: reading (+ optional detail) + settings → the fully-baked
++// snapshot the widget draws verbatim. No IO.
++export function buildWidgetSnapshot(
++  reading: Reading,
++  detail: ReadingDetail | undefined,
++  scale: Scale,
++  precision: Precision,
++): WidgetSnapshot {
++  const s = scene(reading.index);
++  const tiles = (detail?.pollutants ?? []).map(p => ({
++    // Every PollutantCode has a POLLUTANTS entry (closed union, single
++    // source of truth) — non-null assertion mirrors usAqiFromPm25's find().
++    label: POLLUTANTS.find(c => c.code === p.code)!.label,
++    value: formatPollutant(p.value, precision),
++    unit: 'µg/m³',
++  }));
++  return {
++    version: WIDGET_SNAPSHOT_VERSION,
++    city: reading.city,
++    stationLabel: reading.station,
++    displayValue: displayValue(reading.index, reading.pm25, scale, precision),
++    scaleCaption: scaleLabel(scale),
++    band: BANDS[bandOf(reading.index)],
++    keyHex: s.key,
++    deepHex: s.deep,
++    midHex: s.mid,
++    tiles,
++    measuredAt: reading.measuredAt,
++  };
++}
++
++// Stable string that changes iff a republish is warranted (drives the
++// provider's dedup).
++export function widgetSnapshotIdentity(s: WidgetSnapshot): string {
++  return [s.city, s.stationLabel, s.measuredAt, s.displayValue, s.band].join(
++    '|',
++  );
++}

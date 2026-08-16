@@ -1,0 +1,976 @@
+### commits (widget branch)
+30d65b8 feat(widget): native WidgetSync adapter + App wiring (AC-4)
+c7e38b3 feat(shared): WidgetSyncProvider — publish snapshot on reading-identity change (AC-3)
+ee13215 fix(core): widgetSnapshotIdentity keys on full snapshot (review should-fix)
+c09b450 feat(core): widget snapshot builder + identity + WidgetSync seam (AC-1, AC-2)
+8580493 docs: implementation plan for m-widget (headless tasks 1-3 + native gate)
+2593887 docs: rework spec 017 to pure app-synced verbatim (critic REWORK resolved)
+9d428b9 docs: spec 017 home-screen WidgetKit widget (app-synced + hourly self-refresh)
+
+### stat
+ App.tsx                                            |  13 +-
+ docs/specs/017-widget.md                           | 165 ++++++++++++
+ docs/superpowers/plans/2026-08-15-m-widget.md      | 278 +++++++++++++++++++++
+ src/core/widget/__tests__/snapshot.test.ts         |  96 +++++++
+ src/core/widget/index.ts                           |  73 ++++++
+ src/data/widget/__tests__/nativeSync.test.ts       |  44 ++++
+ src/data/widget/index.ts                           |  26 ++
+ .../widget/__tests__/WidgetSyncProvider.test.tsx   | 116 +++++++++
+ src/shared/widget/index.tsx                        |  38 +++
+ 9 files changed, 845 insertions(+), 4 deletions(-)
+
+### diff
+diff --git a/App.tsx b/App.tsx
+index 81b6f6f..f33dca8 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -7,35 +7,38 @@ import {
+   createStationSource,
+   fetchStations,
+   KRAKOW_STATION,
+ } from './src/data/gios';
+ import { createDeviceGeolocation } from './src/data/location';
+ import { createAsyncStorageFavoritesStore } from './src/data/favorites';
+ import { createAsyncStorageSettingsStore } from './src/data/settings';
+ import { createNotifeeNotifier } from './src/data/notifications';
++import { createNativeWidgetSync } from './src/data/widget';
+ import type { ActivePlace } from './src/core/places';
+ import type { Station } from './src/core/geo';
+ import {
+   PlaceSourceProvider,
+   StationsProvider,
+   FavoritesProvider,
+   ActivePlaceProvider,
+ } from './src/shared/place';
+ import { SettingsProvider } from './src/shared/settings';
+ import { NotificationsProvider } from './src/shared/notifications';
++import { WidgetSyncProvider } from './src/shared/widget';
+ import { AppNavigator } from './src/app/AppNavigator';
+ 
+ // Data-layer instances built once and injected (features never call data directly).
+ const nearest = createNearestStationSource(createDeviceGeolocation(), fetch);
+ const sourceForPlace = (p: ActivePlace) =>
+   p.kind === 'location' ? nearest : createStationSource(p.station, fetch);
+ const favoritesStore = createAsyncStorageFavoritesStore();
+ const settingsStore = createAsyncStorageSettingsStore();
+ const notifier = createNotifeeNotifier();
++const widgetSync = createNativeWidgetSync();
+ 
+ function App() {
+   // Fetch the station list once for search (features never call data directly).
+   const [stations, setStations] = useState<Station[]>([]);
+   useEffect(() => {
+     let on = true;
+     fetchStations(fetch)
+       .then(list => on && setStations(list))
+@@ -48,20 +51,22 @@ function App() {
+   return (
+     <GestureHandlerRootView style={{ flex: 1 }}>
+       <StationsProvider stations={stations}>
+         <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+           <FavoritesProvider store={favoritesStore}>
+             <SettingsProvider store={settingsStore}>
+               <NotificationsProvider notifier={notifier}>
+                 <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
+-                  <SafeAreaProvider>
+-                    <StatusBar barStyle="light-content" />
+-                    <AppNavigator />
+-                  </SafeAreaProvider>
++                  <WidgetSyncProvider sync={widgetSync}>
++                    <SafeAreaProvider>
++                      <StatusBar barStyle="light-content" />
++                      <AppNavigator />
++                    </SafeAreaProvider>
++                  </WidgetSyncProvider>
+                 </ActivePlaceProvider>
+               </NotificationsProvider>
+             </SettingsProvider>
+           </FavoritesProvider>
+         </PlaceSourceProvider>
+       </StationsProvider>
+     </GestureHandlerRootView>
+   );
+diff --git a/docs/specs/017-widget.md b/docs/specs/017-widget.md
+new file mode 100644
+index 0000000..aed8a64
+--- /dev/null
++++ b/docs/specs/017-widget.md
+@@ -0,0 +1,165 @@
++# Spec 017: Home-screen WidgetKit widget (CAQI for the active place)
++
++**Status:** draft
++**Milestone:** M-widget · **Sources:** `design/` (CAQI color system: `src/core/scene`); the in-app Teraz hero (the widget mirrors it)
++**New native surface (not an npm library — the "no new dependencies" rule is about npm packages):** a WidgetKit app-extension target, an App Group, and a small custom native module. No new npm dependency.
++**Critic:** REWORK → resolved. The self-fetch/self-refresh model was cut (its B1/B2/B3 all traced to the widget fetching); v1 is **pure app-synced verbatim draw** per the critic's recommendation. S1–S6 folded in. `.superpowers/sdd/critic-017.md`.
++
++## Goal
++A home-screen iOS widget (small + medium) showing the current CAQI value, band,
++and color for the **active place** — mirroring the in-app Teraz hero exactly.
++
++## Architecture (pure app-synced, verbatim draw)
++```
++RN app, whenever the active-place reading changes:
++  WidgetSync.publish(snapshot)                 [core seam → data adapter → native module]
++    → writes a fully-baked snapshot JSON to App Group UserDefaults
++      (suite group.org.reactjs.native.example.Powietrze)
++    → WidgetCenter.shared.reloadAllTimelines()
++Widget extension (Swift/WidgetKit), on each timeline reload:
++  → reads the App Group snapshot → DRAWS IT VERBATIM (small / medium)
++```
++The app is the **single source of truth**: every displayed string and color is
++computed in TS (the same `scene`/`displayValue`/`formatPollutant` the app uses) and
++baked into the snapshot, so the widget matches the app **exactly** and needs **no**
++CAQI/color port and **no** networking in Swift. Freshness follows app use (the
++widget reloads whenever the app republishes); the snapshot's `measuredAt` lets the
++widget show the reading's age honestly ("X godz temu"). Closed-app auto-refresh is a
++deferred follow-up (see Non-goals).
++
++## The snapshot (App-Group contract — the only interface between app and widget)
++```ts
++export const WIDGET_SNAPSHOT_VERSION = 1;      // bump on any breaking schema change (S4)
++export interface WidgetTile { label: string; value: string; unit: string } // baked, drawn verbatim
++export interface WidgetSnapshot {
++  version: number;          // WIDGET_SNAPSHOT_VERSION — widget shows placeholder on mismatch
++  city: string;             // reading.city (e.g. "Kraków")
++  stationLabel: string;     // reading.station (label already carried by Reading)
++  displayValue: string;     // baked headline per scale+precision (widget draws verbatim)
++  scaleCaption: string;     // scaleLabel(scale) — "µg/m³" hidden case handled app-side
++  band: string;             // BANDS[bandOf(index)] — Polish
++  keyHex: string; deepHex: string; midHex: string;  // scene(index) colors, baked exact
++  tiles: WidgetTile[];      // baked pollutant tiles for medium (label+formatted value+unit)
++  measuredAt: string;       // GIOŚ timestamp of the reading (widget renders relative age)
++}
++```
++No `stationId`, no raw `index`/`pm25` — the widget never recomputes anything, so the
++schema carries only what is drawn (S5: one model, trimmed). Built from the `Reading`
++(+ optional `ReadingDetail`), so it works for the default **location** place too —
++`Reading` already has `station` label + `city`, so no station-id exposure is needed (B3 moot).
++
++## Public API (the testable TS seam)
++
++### `src/core/widget/index.ts` (new — pure)
++```ts
++export interface WidgetTile { /* as above */ }
++export interface WidgetSnapshot { /* as above */ }
++export const WIDGET_SNAPSHOT_VERSION = 1;
++// Pure builder: reading (+ optional detail) + settings → the fully-baked snapshot. No IO,
++// no Station param. Uses scene()/displayValue()/scaleLabel()/formatPollutant()/POLLUTANTS
++// (all core) so the widget draws verbatim.
++export function buildWidgetSnapshot(
++  reading: Reading, detail: ReadingDetail | undefined, scale: Scale, precision: Precision,
++): WidgetSnapshot;
++// The seam features/shared use; the native module implements it, a fake in tests.
++export interface WidgetSync { publish(snapshot: WidgetSnapshot): void; }
++```
++
++### `src/data/widget/index.ts` (new)
++```ts
++// Adapter over the native module (NativeModules.WidgetSync). publish → JSON.stringify →
++// native writeSnapshot(json) + reloadTimelines(). Module absent (Android / pre-extension
++// build) → safe no-op so the app never crashes. (AC-4)
++export function createNativeWidgetSync(): WidgetSync;
++```
++
++### `src/shared/widget/` (provider)
++```ts
++// Reads the active place's reading + detail + settings; calls publish(snapshot) whenever
++// the reading IDENTITY changes — keyed on (city + stationLabel + measuredAt + scale +
++// precision + displayValue). Publishes once on the first ready reading; NOT on unrelated
++// re-renders; NOT while loading/absent. (AC-3)
++export function WidgetSyncProvider(props: { sync: WidgetSync; children: React.ReactNode }): JSX.Element;
++```
++`App.tsx`: mount `WidgetSyncProvider` under ActivePlace + Settings, `sync={createNativeWidgetSync()}`.
++
++## Native gate (Swift + Xcode — done with the human; much smaller now: no fetch, no port)
++1. **App Group** `group.org.reactjs.native.example.Powietrze` — provisioned in the Apple
++   Developer portal, entitlement added to **both** the app target and the widget target.
++   **S3:** the suite string must be byte-identical in 3 places — app `.entitlements`, widget
++   `.entitlements`, native-module `UserDefaults(suiteName:)`; `UserDefaults(suiteName:)` returns
++   `nil` (writes silently no-op) if unentitled → add a dev-time assert that the suite is non-nil.
++2. **Widget extension target** `PowietrzeWidget` (WidgetKit, SwiftUI): a `TimelineProvider`
++   that reads the App-Group snapshot (single static entry; reload driven by the app), and
++   `systemSmall` + `systemMedium` SwiftUI views that draw the snapshot fields verbatim
++   (number = `displayValue`, colors from the baked `keyHex/deepHex/midHex`, band, tiles,
++   relative `measuredAt`). **No CAQI math, no color lerp, no networking in the widget.**
++3. **Native module** `WidgetSync` (Swift, `RCTBridgeModule`): `writeSnapshot(String)` →
++   App-Group `UserDefaults`; `reloadTimelines()` → `WidgetCenter.shared.reloadAllTimelines()`.
++4. **`.pbxproj` + entitlements** surgery to add/embed the target — the fiddly part, in Xcode
++   with the human. No `pod install` needed (pure WidgetKit, no third-party code).
++
++## Behavior — Acceptance Criteria
++
++### Core (pure)
++- **AC-1** — `buildWidgetSnapshot(reading, detail, scale, precision)` maps to the full
++  `WidgetSnapshot`: `version === WIDGET_SNAPSHOT_VERSION`; `city`/`stationLabel`/`measuredAt`
++  from the reading; `displayValue === displayValue(reading.index, reading.pm25, scale, precision)`;
++  `scaleCaption === scaleLabel(scale)`; `band === BANDS[bandOf(reading.index)]`;
++  `keyHex/deepHex/midHex === scene(reading.index).{key,deep,mid}`; `tiles` from
++  `detail.pollutants` each `{ label: POLLUTANTS-label, value: formatPollutant(value, precision),
++  unit: 'µg/m³' }`, or `[]` when `detail` is undefined.
++- **AC-2** — snapshot color/band/`displayValue` pinned at ≥3 indices spanning bands, asserting
++  they equal `scene()`/`bandOf()`/`displayValue()` EXACTLY (the app↔widget contract):
++  index 7 → `keyHex === '#5fe3a1'` (below first anchor → exact first anchor) & band `Bardzo dobry`;
++  index 63 → `keyHex === '#f5c63d'` & `Umiarkowany`; index 175 → `keyHex === '#c77dff'` & `Bardzo zły`.
++
++### Integration
++- **AC-3** — `WidgetSyncProvider` (fake `WidgetSync` + fake active place/reading/detail/settings):
++  publishes once on the first ready reading; publishes again when identity changes (new
++  `measuredAt`, or `scale`/`precision` change, or place switch changes `stationLabel`/`city`);
++  does NOT publish on an unrelated re-render (unchanged identity); does NOT publish while the
++  reading is loading/absent.
++- **AC-4** — `createNativeWidgetSync` with `NativeModules.WidgetSync` undefined → `publish` is a
++  safe no-op (no throw), incl. the JSON stringify guarded — the app runs without the extension.
++
++### Manual (sim/device — journal `docs/harness/17-widget.md` + evidence/17)
++- **AC-5** — Add the small + medium widget: it shows the active place's CAQI number, band, and
++  color **identical to the in-app Teraz hero** for the same place. Medium additionally shows
++  city + band + the pollutant tiles (PM10/NO₂/…), matching the app's tiles.
++- **AC-6** — Change the active place in-app (Kraków → a favorite, or toggle location) → after the
++  app republishes, the widget reflects the new place (verify small + medium).
++- **AC-7** — The widget shows the reading's relative age from `measuredAt` ("X godz temu"); when
++  the app republishes (foreground fetch), `reloadAllTimelines` updates the widget. (No self-fetch;
++  closed-app auto-refresh is out of scope — see Non-goals.)
++- **AC-8** — Cold/invalid state: snapshot absent, OR `version` != `WIDGET_SNAPSHOT_VERSION` (S4) →
++  neutral placeholder ("Otwórz aplikację"), no crash.
++
++## Non-goals (YAGNI)
++- **Closed-app auto-refresh** (widget self-fetch / BGAppRefreshTask) — deliberately deferred;
++  v1 refreshes on app use. Revisiting it means either a Swift display-pipeline port or
++  background-JS plumbing (its own spec/ADR).
++- **Lock-screen / StandBy / Large / accessory widgets**; **per-station widget configuration intent**
++  (widget mirrors the app's active place); **Android app widget** (native module no-ops on Android);
++  **24h chart in the widget**.
++
++## Verification
++- **AC-1..2** core `src/core/widget/__tests__/` — enforced `src/core` 100% gate (jest.config `./src/core/`).
++- **AC-3** `src/shared/widget/__tests__/` (render/renderHook + fake sync/store).
++- **AC-4** `src/data/widget/__tests__/` (module-absent no-op).
++- **AC-5..8** manual on the sim, journal + evidence/17.
++
++## Build note (native — the interactive gate)
++Task order: (1) core `buildWidgetSnapshot`+`WidgetSync`+`WIDGET_SNAPSHOT_VERSION` (AC-1..2);
++(2) `WidgetSyncProvider` (AC-3); (3) `createNativeWidgetSync` adapter + App.tsx wiring (AC-4);
++(4) **native gate** — App Group + widget target + SwiftUI verbatim views + native module +
++`.pbxproj` (with the human, Xcode); (5) native run + manual AC-5..8 + journal. Steps 1–3 are
++headless-testable; step 4 is the interactive native gate.
++
++## Resolved (critic)
++- **B1/B2/B3** dissolved by cutting self-fetch — widget draws the baked snapshot; built from
++  `Reading` (no station-id needed); no Swift GIOŚ client/color port.
++- **S1** no cross-language color port to drift (colors baked). **S2** AC-7 reworded (no refresh
++  guarantee). **S3** App-Group 3-way match + non-nil assert in the gate. **S4** snapshot `version`
++  + AC-8 mismatch→placeholder. **S5** schema trimmed to the verbatim model. **S6** all-cached,
++  single `measuredAt`. Minors: exact hex in AC-2; `city`/`stationLabel` sourced from `Reading`.
+diff --git a/docs/superpowers/plans/2026-08-15-m-widget.md b/docs/superpowers/plans/2026-08-15-m-widget.md
+new file mode 100644
+index 0000000..130b9c7
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-15-m-widget.md
+@@ -0,0 +1,278 @@
++# Home-screen WidgetKit widget Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
++
++**Goal:** A home-screen iOS widget (small + medium) that mirrors the in-app Teraz hero for the active place, by having the RN app bake a versioned snapshot into an App Group that the widget draws verbatim.
++
++**Architecture:** App computes everything in TS (`buildWidgetSnapshot`, same `scene`/`displayValue`/`formatPollutant` as the app) → publishes via a `WidgetSync` seam → native module writes App-Group UserDefaults + reloads the widget. Tasks 1–3 are headless-testable TS; Task 4 is the interactive native gate (Swift/Xcode) done with the human; Task 5 is manual sim verification.
++
++**Tech Stack:** TypeScript strict, React Native 0.86, Jest + @testing-library/react-native (render/renderHook are async — await them). WidgetKit/SwiftUI + a custom `RCTBridgeModule` (Task 4). No new npm dependency.
++
++## Global Constraints
++- No new npm dependency (WidgetKit/App Group/native module are native, not packages). · TS strict, no `any` outside a justified data boundary. · `src/core` pure (zero React/data imports), enforced 100% coverage (jest.config `./src/core/`). · Files ≤200 lines, functions ≤40. · Imports one-way: features→shared→core, data→core; features never import data. · Behavior tests cite AC IDs.
++- Spec `docs/specs/017-widget.md` is authoritative (exact snapshot fields, AC values). Snapshot is **verbatim-draw** — the widget recomputes nothing.
++- App Group suite string (Task 4): `group.org.reactjs.native.example.Powietrze`.
++
++---
++
++### Task 1: Core — snapshot builder + identity + seam (pure; green alone)
++
++**Files:**
++- Create: `src/core/widget/index.ts`
++- Modify: `src/core/index.ts` if it barrels core (check; else features import `../../core/widget` directly)
++- Test: `src/core/widget/__tests__/snapshot.test.ts`
++
++**Interfaces:**
++- Consumes (from `src/core/air`): `Reading` (`{index,pm25,measuredAt,city,station}`), `ReadingDetail` (`{history,pollutants}`), `displayValue`, `scaleLabel`, `formatPollutant`, `POLLUTANTS`, `BANDS`, `bandOf`, `scene`. From `src/core/settings`: `Scale`, `Precision`. (Grep each to confirm the exact import path/signature before writing.)
++- Produces (for Tasks 2–4): `WidgetTile`, `WidgetSnapshot`, `WIDGET_SNAPSHOT_VERSION`, `WidgetSync`, `buildWidgetSnapshot(reading, detail, scale, precision)`, `widgetSnapshotIdentity(s)`.
++
++- [ ] **Step 1: Write failing tests (AC-1, AC-2, identity)**
++
++```ts
++import {
++  buildWidgetSnapshot, widgetSnapshotIdentity, WIDGET_SNAPSHOT_VERSION,
++} from '..';
++import { scene, displayValue, scaleLabel, bandOf, BANDS } from '../../air';
++// (bandOf/BANDS/scene are in core/scene; displayValue/scaleLabel in core/air — confirm paths)
++
++const reading = { index: 63, pm25: 65, measuredAt: '2026-08-15 12:00:00', city: 'Kraków', station: 'Aleja Krasińskiego' };
++const detail = { history: [], pollutants: [{ code: 'PM10', value: 13 }, { code: 'NO2', value: 29 }] };
++
++test('AC-1: buildWidgetSnapshot bakes every field from reading/detail/settings', () => {
++  const s = buildWidgetSnapshot(reading, detail, 'µg/m³', 'Przybliżona');
++  expect(s.version).toBe(WIDGET_SNAPSHOT_VERSION);
++  expect(s.city).toBe('Kraków');
++  expect(s.stationLabel).toBe('Aleja Krasińskiego');
++  expect(s.measuredAt).toBe('2026-08-15 12:00:00');
++  expect(s.displayValue).toBe(displayValue(63, 65, 'µg/m³', 'Przybliżona'));
++  expect(s.scaleCaption).toBe(scaleLabel('µg/m³'));
++  expect(s.band).toBe(BANDS[bandOf(63)]);
++  expect(s.keyHex).toBe(scene(63).key);
++  expect(s.deepHex).toBe(scene(63).deep);
++  expect(s.midHex).toBe(scene(63).mid);
++  expect(s.tiles).toEqual([
++    { label: 'PM10', value: '13', unit: 'µg/m³' },
++    { label: 'NO₂', value: '29', unit: 'µg/m³' },
++  ]);
++});
++
++test('AC-1: no detail → empty tiles', () => {
++  expect(buildWidgetSnapshot(reading, undefined, 'CAQI', 'Przybliżona').tiles).toEqual([]);
++});
++
++test('AC-2: color + band + displayValue pinned across bands (app↔widget contract)', () => {
++  for (const [index, key, band] of [
++    [7, '#5fe3a1', 'Bardzo dobry'],
++    [63, '#f5c63d', 'Umiarkowany'],
++    [175, '#c77dff', 'Bardzo zły'],
++  ] as const) {
++    const s = buildWidgetSnapshot({ ...reading, index }, undefined, 'CAQI', 'Przybliżona');
++    expect(s.keyHex).toBe(key);
++    expect(s.band).toBe(band);
++    expect(s.keyHex).toBe(scene(index).key);
++    expect(s.displayValue).toBe(displayValue(index, reading.pm25, 'CAQI', 'Przybliżona'));
++  }
++});
++
++test('AC-3(core): identity changes with place/measuredAt/scale/precision, stable otherwise', () => {
++  const a = buildWidgetSnapshot(reading, detail, 'CAQI', 'Przybliżona');
++  const b = buildWidgetSnapshot(reading, detail, 'CAQI', 'Przybliżona');
++  expect(widgetSnapshotIdentity(a)).toBe(widgetSnapshotIdentity(b));
++  expect(widgetSnapshotIdentity(buildWidgetSnapshot(reading, detail, 'µg/m³', 'Przybliżona')))
++    .not.toBe(widgetSnapshotIdentity(a)); // scale → displayValue changes → identity changes
++  expect(widgetSnapshotIdentity(buildWidgetSnapshot({ ...reading, measuredAt: '2026-08-15 13:00:00' }, detail, 'CAQI', 'Przybliżona')))
++    .not.toBe(widgetSnapshotIdentity(a));
++});
++```
++
++- [ ] **Step 2: Run, verify fail** — `npx jest src/core/widget`.
++- [ ] **Step 3: Implement** `src/core/widget/index.ts`:
++
++```ts
++import type { Reading, ReadingDetail } from '../air';
++import { displayValue, scaleLabel, formatPollutant, POLLUTANTS } from '../air';
++import { scene, bandOf, BANDS } from '../scene';
++import type { Scale, Precision } from '../settings';
++
++export const WIDGET_SNAPSHOT_VERSION = 1;
++export interface WidgetTile { label: string; value: string; unit: string }
++export interface WidgetSnapshot {
++  version: number; city: string; stationLabel: string;
++  displayValue: string; scaleCaption: string; band: string;
++  keyHex: string; deepHex: string; midHex: string;
++  tiles: WidgetTile[]; measuredAt: string;
++}
++export interface WidgetSync { publish(snapshot: WidgetSnapshot): void }
++
++export function buildWidgetSnapshot(
++  reading: Reading, detail: ReadingDetail | undefined,
++  scale: Scale, precision: Precision,
++): WidgetSnapshot {
++  const s = scene(reading.index);
++  const tiles = (detail?.pollutants ?? []).map(p => ({
++    label: POLLUTANTS.find(c => c.code === p.code)?.label ?? p.code,
++    value: formatPollutant(p.value, precision),
++    unit: 'µg/m³',
++  }));
++  return {
++    version: WIDGET_SNAPSHOT_VERSION,
++    city: reading.city, stationLabel: reading.station,
++    displayValue: displayValue(reading.index, reading.pm25, scale, precision),
++    scaleCaption: scaleLabel(scale),
++    band: BANDS[bandOf(reading.index)],
++    keyHex: s.key, deepHex: s.deep, midHex: s.mid,
++    tiles, measuredAt: reading.measuredAt,
++  };
++}
++
++// Stable string that changes iff a republish is warranted (drives the provider's dedup).
++export function widgetSnapshotIdentity(s: WidgetSnapshot): string {
++  return [s.city, s.stationLabel, s.measuredAt, s.displayValue, s.band].join('|');
++}
++```
++(Confirm `scene`/`bandOf`/`BANDS` are exported from `../scene` and `displayValue`/`scaleLabel`/`formatPollutant`/`POLLUTANTS` from `../air`; adjust imports to the real paths.)
++
++- [ ] **Step 4: Run tests** — `npx jest src/core/widget` green.
++- [ ] **Step 5: Full gate** — `npm run typecheck && npm run lint && npm test` green, `src/core` 100%. Commit: `feat(core): widget snapshot builder + identity + WidgetSync seam (AC-1, AC-2)`.
++
++---
++
++### Task 2: Shared — WidgetSyncProvider (publishes on identity change)
++
++**Files:**
++- Create: `src/shared/widget/index.tsx`
++- Test: `src/shared/widget/__tests__/WidgetSyncProvider.test.tsx`
++
++**Interfaces:**
++- Consumes: `WidgetSync`, `buildWidgetSnapshot`, `widgetSnapshotIdentity` (Task 1); `useActivePlace()` → `{ detail?, status, reading? }` (`src/shared/place`); `useSettings()` → `{ settings: { scale, precision } }` (`src/shared/settings`).
++- Produces: `WidgetSyncProvider({ sync, children })` (Task 3 mounts it).
++
++- [ ] **Step 1: Write failing test (AC-3)** — mirror the `NotificationsProvider` test harness (`src/shared/notifications/__tests__`) for the fake-store pattern, and the `ActivePlaceContext`/`usePlaceReading` tests for feeding a reading. Concretely: render `<WidgetSyncProvider sync={fake}>` inside the real `SettingsProvider` (fake store) + `ActivePlaceProvider` stack with a fake `AirQualitySource` returning a fixed `reading` + `detail`; assert:
++  - publishes exactly once once the reading is ready, with `sync.publish` receiving `buildWidgetSnapshot(reading, detail, scale, precision)`;
++  - a re-render with the same reading/settings → NO second publish (identity unchanged);
++  - changing `scale` (via settings `set`) → a second publish;
++  - while `status !== 'ready'` / `reading` absent → no publish.
++
++```ts
++// sketch — implementer adapts to the existing place/settings test harness
++const fake = { publish: jest.fn() };
++// ...render provider in the stack with a fake source returning READING + DETAIL...
++await waitFor(() => expect(fake.publish).toHaveBeenCalledTimes(1));
++expect(fake.publish).toHaveBeenCalledWith(buildWidgetSnapshot(READING, DETAIL, 'CAQI', 'Przybliżona'));
++```
++
++- [ ] **Step 2: Run, verify fail** — `npx jest src/shared/widget`.
++- [ ] **Step 3: Implement** `src/shared/widget/index.tsx`:
++
++```tsx
++import { useEffect, useRef, type ReactNode } from 'react';
++import { useActivePlace } from '../place';
++import { useSettings } from '../settings';
++import { buildWidgetSnapshot, widgetSnapshotIdentity, type WidgetSync } from '../../core/widget';
++
++export function WidgetSyncProvider({ sync, children }: { sync: WidgetSync; children: ReactNode }) {
++  const { status, reading, detail } = useActivePlace();
++  const { settings } = useSettings();
++  const lastId = useRef<string | null>(null);
++  useEffect(() => {
++    if (status !== 'ready' || !reading) return;
++    const snap = buildWidgetSnapshot(reading, detail, settings.scale, settings.precision);
++    const id = widgetSnapshotIdentity(snap);
++    if (id === lastId.current) return;
++    lastId.current = id;
++    sync.publish(snap);
++  }, [status, reading, detail, settings.scale, settings.precision, sync]);
++  return <>{children}</>;
++}
++```
++(Confirm `status` value for "ready" and the `ReadingState` shape in `usePlaceReading.ts`; use the real literal.)
++
++- [ ] **Step 4: Run tests** — `npx jest src/shared/widget` green.
++- [ ] **Step 5: Full gate** — `npm run typecheck && npm run lint && npm test` green. Commit: `feat(shared): WidgetSyncProvider — publish snapshot on reading-identity change (AC-3)`.
++
++---
++
++### Task 3: Data adapter + App wiring (no-op safe without the extension)
++
++**Files:**
++- Create: `src/data/widget/index.ts`
++- Test: `src/data/widget/__tests__/nativeSync.test.ts`
++- Modify: `App.tsx` (import + mount the provider + build the sync)
++
++**Interfaces:**
++- Consumes: `WidgetSync`, `WidgetSnapshot` (Task 1); `WidgetSyncProvider` (Task 2); `NativeModules` from `react-native`.
++- Produces: `createNativeWidgetSync(): WidgetSync`.
++
++- [ ] **Step 1: Write failing test (AC-4)** — with `NativeModules.WidgetSync` undefined, `createNativeWidgetSync().publish(SNAPSHOT)` does not throw and calls nothing; with a fake module present, `publish` calls `writeSnapshot(JSON.stringify(snapshot))` then `reloadTimelines()`.
++
++```ts
++import { NativeModules } from 'react-native';
++import { createNativeWidgetSync } from '..';
++const SNAP = { version: 1, city: 'K', stationLabel: 'S', displayValue: '5', scaleCaption: 'µg/m³', band: 'Dobry', keyHex: '#5fe3a1', deepHex: '#04231a', midHex: '#0a3a2a', tiles: [], measuredAt: 't' };
++
++test('AC-4: native module absent → publish is a safe no-op', () => {
++  delete (NativeModules as any).WidgetSync;
++  expect(() => createNativeWidgetSync().publish(SNAP as any)).not.toThrow();
++});
++test('AC-4: module present → writeSnapshot(json) then reloadTimelines', () => {
++  const writeSnapshot = jest.fn(); const reloadTimelines = jest.fn();
++  (NativeModules as any).WidgetSync = { writeSnapshot, reloadTimelines };
++  createNativeWidgetSync().publish(SNAP as any);
++  expect(writeSnapshot).toHaveBeenCalledWith(JSON.stringify(SNAP));
++  expect(reloadTimelines).toHaveBeenCalled();
++});
++```
++
++- [ ] **Step 2: Run, verify fail** — `npx jest src/data/widget`.
++- [ ] **Step 3: Implement** `src/data/widget/index.ts`:
++
++```ts
++import { NativeModules } from 'react-native';
++import type { WidgetSync, WidgetSnapshot } from '../../core/widget';
++
++export function createNativeWidgetSync(): WidgetSync {
++  const mod = NativeModules.WidgetSync as
++    | { writeSnapshot(json: string): void; reloadTimelines(): void }
++    | undefined;
++  return {
++    publish(snapshot: WidgetSnapshot) {
++      if (!mod) return; // Android / pre-extension build → no-op
++      mod.writeSnapshot(JSON.stringify(snapshot));
++      mod.reloadTimelines();
++    },
++  };
++}
++```
++
++- [ ] **Step 4: Wire `App.tsx`** — build `const widgetSync = createNativeWidgetSync();` beside the other data instances; mount `<WidgetSyncProvider sync={widgetSync}>` INSIDE `ActivePlaceProvider` (it needs `useActivePlace`) and Settings, wrapping `SafeAreaProvider`/`AppNavigator`. Confirm the provider tree order.
++- [ ] **Step 5: Run tests** — `npm test` green (App.test still renders).
++- [ ] **Step 6: Full gate** — `npm run typecheck && npm run lint && npm test` green, `src/core` 100%. Commit: `feat(widget): native WidgetSync adapter + App wiring (AC-4)`.
++
++---
++
++### Task 4: NATIVE GATE — App Group + widget extension + native module (PAUSE for human)
++
++**This task is the interactive native gate — do NOT attempt headlessly. It is run with the human in Xcode. Steps here are the checklist, not automated TDD.**
++
++- [ ] App Group `group.org.reactjs.native.example.Powietrze`: provision in the Apple Developer portal; add the entitlement to the app target AND the new widget target. Verify the suite string is byte-identical in app `.entitlements`, widget `.entitlements`, and the native module `UserDefaults(suiteName:)`; add a dev assert that `UserDefaults(suiteName:)` is non-nil.
++- [ ] Widget extension target `PowietrzeWidget` (WidgetKit/SwiftUI): `TimelineProvider` reads the App-Group snapshot (single entry; reload driven by the app), `systemSmall` + `systemMedium` views draw the snapshot verbatim (number=`displayValue`, colors from `keyHex/deepHex/midHex`, `band`, `city`/`stationLabel`, `tiles`, relative `measuredAt`). Placeholder ("Otwórz aplikację") when snapshot absent OR `version != WIDGET_SNAPSHOT_VERSION`. NO CAQI math, NO color lerp, NO networking.
++- [ ] Native module `WidgetSync` (Swift `RCTBridgeModule`): `writeSnapshot(_ json: String)` → App-Group `UserDefaults`; `reloadTimelines()` → `WidgetCenter.shared.reloadAllTimelines()`. Export both to RN (names must match Task 3's `NativeModules.WidgetSync.{writeSnapshot,reloadTimelines}`).
++- [ ] `.pbxproj` + embed the extension; native rebuild for the sim.
++
++---
++
++### Task 5: Manual sim verification (AC-5..8) + journal
++
++- [ ] AC-5: small + medium widget shows the active place's CAQI number/band/color identical to the in-app hero; medium shows city+band+tiles. Screenshot → evidence/17.
++- [ ] AC-6: change the active place in-app → widget updates after republish.
++- [ ] AC-7: widget shows relative `measuredAt` age; app foreground fetch → `reloadAllTimelines` updates the widget.
++- [ ] AC-8: no snapshot / version mismatch → "Otwórz aplikację" placeholder, no crash.
++- [ ] Write `docs/harness/17-widget.md` (journal) + spec status → implemented.
++
++---
++
++## Self-review
++- **Spec coverage:** AC-1/AC-2 → Task 1; AC-3 → Task 1 (identity) + Task 2 (provider); AC-4 → Task 3; AC-5..8 → Task 5 (manual). Native gate → Task 4. All covered.
++- **Type consistency:** `WidgetSnapshot`/`WidgetTile`/`WidgetSync`/`buildWidgetSnapshot`/`widgetSnapshotIdentity`/`WIDGET_SNAPSHOT_VERSION` defined in Task 1, consumed unchanged in Tasks 2–3. Native module method names `writeSnapshot`/`reloadTimelines` match between Task 3 (JS) and Task 4 (Swift).
++- **Placeholders:** none — all code/AC values inline from the spec.
++- **Boundary:** headless Tasks 1–3 fully testable + green; Task 4 is the human native gate (pause after Task 3); Task 5 manual.
+diff --git a/src/core/widget/__tests__/snapshot.test.ts b/src/core/widget/__tests__/snapshot.test.ts
+new file mode 100644
+index 0000000..df96876
+--- /dev/null
++++ b/src/core/widget/__tests__/snapshot.test.ts
+@@ -0,0 +1,96 @@
++import {
++  buildWidgetSnapshot,
++  widgetSnapshotIdentity,
++  WIDGET_SNAPSHOT_VERSION,
++} from '..';
++import type { ReadingDetail } from '../../air';
++import { displayValue, scaleLabel } from '../../air';
++import { scene, bandOf, BANDS } from '../../scene';
++
++const reading = {
++  index: 63,
++  pm25: 65,
++  measuredAt: '2026-08-15 12:00:00',
++  city: 'Kraków',
++  station: 'Aleja Krasińskiego',
++};
++const detail: ReadingDetail = {
++  history: [],
++  pollutants: [
++    { code: 'PM10', value: 13 },
++    { code: 'NO2', value: 29 },
++  ],
++};
++
++test('AC-1: buildWidgetSnapshot bakes every field from reading/detail/settings', () => {
++  const s = buildWidgetSnapshot(reading, detail, 'µg/m³', 'Przybliżona');
++  expect(s.version).toBe(WIDGET_SNAPSHOT_VERSION);
++  expect(s.city).toBe('Kraków');
++  expect(s.stationLabel).toBe('Aleja Krasińskiego');
++  expect(s.measuredAt).toBe('2026-08-15 12:00:00');
++  expect(s.displayValue).toBe(displayValue(63, 65, 'µg/m³', 'Przybliżona'));
++  expect(s.scaleCaption).toBe(scaleLabel('µg/m³'));
++  expect(s.band).toBe(BANDS[bandOf(63)]);
++  expect(s.keyHex).toBe(scene(63).key);
++  expect(s.deepHex).toBe(scene(63).deep);
++  expect(s.midHex).toBe(scene(63).mid);
++  expect(s.tiles).toEqual([
++    { label: 'PM10', value: '13', unit: 'µg/m³' },
++    { label: 'NO₂', value: '29', unit: 'µg/m³' },
++  ]);
++});
++
++test('AC-1: no detail → empty tiles', () => {
++  expect(
++    buildWidgetSnapshot(reading, undefined, 'CAQI', 'Przybliżona').tiles,
++  ).toEqual([]);
++});
++
++test('AC-2: color + band + displayValue pinned across bands (app↔widget contract)', () => {
++  for (const [index, key, band] of [
++    [7, '#5fe3a1', 'Bardzo dobry'],
++    [63, '#f5c63d', 'Umiarkowany'],
++    [175, '#c77dff', 'Bardzo zły'],
++  ] as const) {
++    const s = buildWidgetSnapshot(
++      { ...reading, index },
++      undefined,
++      'CAQI',
++      'Przybliżona',
++    );
++    expect(s.keyHex).toBe(key);
++    expect(s.band).toBe(band);
++    expect(s.keyHex).toBe(scene(index).key);
++    expect(s.displayValue).toBe(
++      displayValue(index, reading.pm25, 'CAQI', 'Przybliżona'),
++    );
++  }
++});
++
++test('AC-3(core): identity changes with place/measuredAt/scale/precision, stable otherwise', () => {
++  const a = buildWidgetSnapshot(reading, detail, 'CAQI', 'Przybliżona');
++  const b = buildWidgetSnapshot(reading, detail, 'CAQI', 'Przybliżona');
++  expect(widgetSnapshotIdentity(a)).toBe(widgetSnapshotIdentity(b));
++  expect(
++    widgetSnapshotIdentity(
++      buildWidgetSnapshot(reading, detail, 'µg/m³', 'Przybliżona'),
++    ),
++  ).not.toBe(widgetSnapshotIdentity(a)); // scale → displayValue changes → identity changes
++  expect(
++    widgetSnapshotIdentity(
++      buildWidgetSnapshot(
++        { ...reading, measuredAt: '2026-08-15 13:00:00' },
++        detail,
++        'CAQI',
++        'Przybliżona',
++      ),
++    ),
++  ).not.toBe(widgetSnapshotIdentity(a));
++  // precision toggle in CAQI mode changes the TILES (13 → 13.0) but not the
++  // headline — identity must still change so the widget's tiles don't go stale.
++  expect(
++    widgetSnapshotIdentity(
++      buildWidgetSnapshot(reading, detail, 'CAQI', 'Dokładna'),
++    ),
++  ).not.toBe(widgetSnapshotIdentity(a));
++});
+diff --git a/src/core/widget/index.ts b/src/core/widget/index.ts
+new file mode 100644
+index 0000000..9cb1fa3
+--- /dev/null
++++ b/src/core/widget/index.ts
+@@ -0,0 +1,73 @@
++import type { Reading, ReadingDetail } from '../air';
++import { displayValue, scaleLabel, formatPollutant, POLLUTANTS } from '../air';
++import { scene, bandOf, BANDS } from '../scene';
++import type { Scale, Precision } from '../settings';
++
++export const WIDGET_SNAPSHOT_VERSION = 1;
++
++export interface WidgetTile {
++  label: string;
++  value: string;
++  unit: string;
++}
++
++export interface WidgetSnapshot {
++  version: number;
++  city: string;
++  stationLabel: string;
++  displayValue: string;
++  scaleCaption: string;
++  band: string;
++  keyHex: string;
++  deepHex: string;
++  midHex: string;
++  tiles: WidgetTile[];
++  measuredAt: string;
++}
++
++// The seam features/shared use to publish a snapshot; the native module
++// implements it, a fake in tests.
++export interface WidgetSync {
++  publish(snapshot: WidgetSnapshot): void;
++}
++
++// Pure builder: reading (+ optional detail) + settings → the fully-baked
++// snapshot the widget draws verbatim. No IO.
++export function buildWidgetSnapshot(
++  reading: Reading,
++  detail: ReadingDetail | undefined,
++  scale: Scale,
++  precision: Precision,
++): WidgetSnapshot {
++  const s = scene(reading.index);
++  const tiles = (detail?.pollutants ?? []).map(p => ({
++    // Every PollutantCode has a POLLUTANTS entry (closed union, single
++    // source of truth) — non-null assertion mirrors usAqiFromPm25's find().
++    label: POLLUTANTS.find(c => c.code === p.code)!.label,
++    value: formatPollutant(p.value, precision),
++    unit: 'µg/m³',
++  }));
++  return {
++    version: WIDGET_SNAPSHOT_VERSION,
++    city: reading.city,
++    stationLabel: reading.station,
++    displayValue: displayValue(reading.index, reading.pm25, scale, precision),
++    scaleCaption: scaleLabel(scale),
++    band: BANDS[bandOf(reading.index)],
++    keyHex: s.key,
++    deepHex: s.deep,
++    midHex: s.mid,
++    tiles,
++    measuredAt: reading.measuredAt,
++  };
++}
++
++// Stable string that changes iff a republish is warranted (drives the
++// provider's dedup). Keys on the FULL drawn snapshot so any visible change
++// triggers a republish — notably a precision toggle changes the pollutant
++// tiles (13 → 13.0) without changing the headline in CAQI mode, so keying on
++// displayValue alone would leave the widget's tiles stale. `version` is a
++// constant so including it is harmless.
++export function widgetSnapshotIdentity(s: WidgetSnapshot): string {
++  return JSON.stringify(s);
++}
+diff --git a/src/data/widget/__tests__/nativeSync.test.ts b/src/data/widget/__tests__/nativeSync.test.ts
+new file mode 100644
+index 0000000..7e36b94
+--- /dev/null
++++ b/src/data/widget/__tests__/nativeSync.test.ts
+@@ -0,0 +1,44 @@
++import { NativeModules } from 'react-native';
++import { createNativeWidgetSync } from '..';
++import type { WidgetSnapshot } from '../../../core/widget';
++
++const SNAP: WidgetSnapshot = {
++  version: 1,
++  city: 'K',
++  stationLabel: 'S',
++  displayValue: '5',
++  scaleCaption: 'µg/m³',
++  band: 'Dobry',
++  keyHex: '#5fe3a1',
++  deepHex: '#04231a',
++  midHex: '#0a3a2a',
++  tiles: [],
++  measuredAt: 't',
++};
++
++// react-native's NativeModules type is a loose index; narrow it here so the
++// test can add/remove the WidgetSync entry without `any`.
++type NativeModulesRecord = Record<string, unknown>;
++const nativeModules = NativeModules as unknown as NativeModulesRecord;
++
++describe('createNativeWidgetSync (AC-4)', () => {
++  afterEach(() => {
++    delete nativeModules.WidgetSync;
++  });
++
++  test('AC-4: native module absent → publish is a safe no-op', () => {
++    delete nativeModules.WidgetSync;
++    expect(() => createNativeWidgetSync().publish(SNAP)).not.toThrow();
++  });
++
++  test('AC-4: module present → writeSnapshot(json) then reloadTimelines', () => {
++    const writeSnapshot = jest.fn();
++    const reloadTimelines = jest.fn();
++    nativeModules.WidgetSync = { writeSnapshot, reloadTimelines };
++
++    createNativeWidgetSync().publish(SNAP);
++
++    expect(writeSnapshot).toHaveBeenCalledWith(JSON.stringify(SNAP));
++    expect(reloadTimelines).toHaveBeenCalled();
++  });
++});
+diff --git a/src/data/widget/index.ts b/src/data/widget/index.ts
+new file mode 100644
+index 0000000..599afde
+--- /dev/null
++++ b/src/data/widget/index.ts
+@@ -0,0 +1,26 @@
++import { NativeModules } from 'react-native';
++import type { WidgetSync, WidgetSnapshot } from '../../core/widget';
++
++// The native RCTBridgeModule seam (Task 4, Swift). Typed locally rather than
++// widening NativeModules — the module is absent on Android / pre-extension
++// builds, hence the optional type.
++interface NativeWidgetSyncModule {
++  writeSnapshot(json: string): void;
++  reloadTimelines(): void;
++}
++
++// The @react-native implementation of the pure `WidgetSync` seam. Writes the
++// baked snapshot into the App-Group UserDefaults and reloads the widget's
++// timelines. Safe no-op when the native module isn't present (Android, or
++// iOS before the widget extension gate is built) — the app must never crash
++// because the widget can't be reached.
++export function createNativeWidgetSync(): WidgetSync {
++  const mod = NativeModules.WidgetSync as NativeWidgetSyncModule | undefined;
++  return {
++    publish(snapshot: WidgetSnapshot) {
++      if (!mod) return;
++      mod.writeSnapshot(JSON.stringify(snapshot));
++      mod.reloadTimelines();
++    },
++  };
++}
+diff --git a/src/shared/widget/__tests__/WidgetSyncProvider.test.tsx b/src/shared/widget/__tests__/WidgetSyncProvider.test.tsx
+new file mode 100644
+index 0000000..e145868
+--- /dev/null
++++ b/src/shared/widget/__tests__/WidgetSyncProvider.test.tsx
+@@ -0,0 +1,116 @@
++import { render, waitFor, fireEvent } from '@testing-library/react-native';
++import { Text, Pressable } from 'react-native';
++import { WidgetSyncProvider } from '..';
++import { buildWidgetSnapshot, type WidgetSync } from '../../../core/widget';
++import {
++  PlaceSourceProvider,
++  type SourceForPlace,
++} from '../../place/PlaceSourceContext';
++import { ActivePlaceProvider } from '../../place/ActivePlaceContext';
++import { SettingsProvider, useSettings } from '../../settings';
++import type { Reading, ReadingDetail } from '../../../core/air';
++import {
++  DEFAULT_SETTINGS,
++  type Settings,
++  type SettingsStore,
++} from '../../../core/settings';
++
++const store = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
++  load: async () => s,
++  save: async () => {},
++});
++
++const READING: Reading = {
++  index: 63,
++  pm25: 65,
++  measuredAt: '2026-08-15 12:00:00',
++  city: 'Kraków',
++  station: 'Aleja Krasińskiego',
++};
++const DETAIL: ReadingDetail = {
++  history: [],
++  pollutants: [
++    { code: 'PM10', value: 13 },
++    { code: 'NO2', value: 29 },
++  ],
++};
++
++const readySource: SourceForPlace = () => ({
++  getCurrentReading: () => Promise.resolve(READING),
++  getDetail: () => Promise.resolve(DETAIL),
++});
++
++const loadingSource: SourceForPlace = () => ({
++  getCurrentReading: () => new Promise<Reading>(() => {}), // never resolves
++});
++
++const fakeSync = (): WidgetSync & { publish: jest.Mock } => ({
++  publish: jest.fn(),
++});
++
++function ScaleToggle() {
++  const { set } = useSettings();
++  return (
++    <Pressable testID="toggle-scale" onPress={() => set('scale', 'µg/m³')}>
++      <Text>toggle</Text>
++    </Pressable>
++  );
++}
++
++const tree = (source: SourceForPlace, sync: WidgetSync, settings: Settings) => (
++  <PlaceSourceProvider sourceForPlace={source}>
++    <SettingsProvider store={store(settings)}>
++      <ActivePlaceProvider>
++        <WidgetSyncProvider sync={sync}>
++          <ScaleToggle />
++          <Text>x</Text>
++        </WidgetSyncProvider>
++      </ActivePlaceProvider>
++    </SettingsProvider>
++  </PlaceSourceProvider>
++);
++
++const wrap = (
++  source: SourceForPlace,
++  sync: WidgetSync,
++  settings: Settings = DEFAULT_SETTINGS,
++) => render(tree(source, sync, settings));
++
++test('AC-3: publishes once when the reading becomes ready, with the built snapshot', async () => {
++  const sync = fakeSync();
++  await wrap(readySource, sync);
++  await waitFor(() => expect(sync.publish).toHaveBeenCalledTimes(1));
++  expect(sync.publish).toHaveBeenCalledWith(
++    buildWidgetSnapshot(
++      READING,
++      DETAIL,
++      DEFAULT_SETTINGS.scale,
++      DEFAULT_SETTINGS.precision,
++    ),
++  );
++});
++
++test('AC-3: an unrelated re-render with unchanged reading/settings does not republish', async () => {
++  const sync = fakeSync();
++  const utils = await wrap(readySource, sync);
++  await waitFor(() => expect(sync.publish).toHaveBeenCalledTimes(1));
++  await utils.rerender(tree(readySource, sync, DEFAULT_SETTINGS));
++  expect(sync.publish).toHaveBeenCalledTimes(1);
++});
++
++test('AC-3: changing scale republishes with the updated snapshot', async () => {
++  const sync = fakeSync();
++  const utils = await wrap(readySource, sync);
++  await waitFor(() => expect(sync.publish).toHaveBeenCalledTimes(1));
++  fireEvent.press(utils.getByTestId('toggle-scale'));
++  await waitFor(() => expect(sync.publish).toHaveBeenCalledTimes(2));
++  expect(sync.publish).toHaveBeenLastCalledWith(
++    buildWidgetSnapshot(READING, DETAIL, 'µg/m³', DEFAULT_SETTINGS.precision),
++  );
++});
++
++test('AC-3: no publish while the reading is not ready', async () => {
++  const sync = fakeSync();
++  await wrap(loadingSource, sync);
++  expect(sync.publish).not.toHaveBeenCalled();
++});
+diff --git a/src/shared/widget/index.tsx b/src/shared/widget/index.tsx
+new file mode 100644
+index 0000000..8ba279a
+--- /dev/null
++++ b/src/shared/widget/index.tsx
+@@ -0,0 +1,38 @@
++import { useEffect, useRef, type ReactNode } from 'react';
++import { useActivePlace } from '../place';
++import { useSettings } from '../settings';
++import {
++  buildWidgetSnapshot,
++  widgetSnapshotIdentity,
++  type WidgetSync,
++} from '../../core/widget';
++
++// Publishes a baked WidgetSnapshot to the App-Group widget whenever the
++// active place's reading (or the scale/precision it's drawn with) produces a
++// new identity. Mirrors NotificationsProvider's "derive from settings, sync
++// to a seam" shape.
++export function WidgetSyncProvider({
++  sync,
++  children,
++}: {
++  sync: WidgetSync;
++  children: ReactNode;
++}) {
++  const { status, reading, detail } = useActivePlace();
++  const { settings } = useSettings();
++  const lastId = useRef<string | null>(null);
++  useEffect(() => {
++    if (status !== 'ready' || !reading) return;
++    const snap = buildWidgetSnapshot(
++      reading,
++      detail,
++      settings.scale,
++      settings.precision,
++    );
++    const id = widgetSnapshotIdentity(snap);
++    if (id === lastId.current) return;
++    lastId.current = id;
++    sync.publish(snap);
++  }, [status, reading, detail, settings.scale, settings.precision, sync]);
++  return <>{children}</>;
++}
