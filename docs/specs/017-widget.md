@@ -1,6 +1,6 @@
 # Spec 017: Home-screen WidgetKit widget (CAQI for the active place)
 
-**Status:** headless slice implemented (AC-1..4 automated + verified); AC-5..8 pending the native gate (Task 4). Journal: `docs/harness/17-widget.md`
+**Status:** implemented — AC-1..4 automated+verified; native gate built (Turbo Module package + widget extension + App Group, ADR-014) with the app→App-Group snapshot VERIFIED live on the sim; AC-5..8 = final human sim check (add widget to home screen). Journal: `docs/harness/17-widget.md` · Native gate: `docs/harness/native-gate-widget.md`
 **Milestone:** M-widget · **Sources:** `design/` (CAQI color system: `src/core/scene`); the in-app Teraz hero (the widget mirrors it)
 **New native surface (not an npm library — the "no new dependencies" rule is about npm packages):** a WidgetKit app-extension target, an App Group, and a small custom native module. No new npm dependency.
 **Critic:** REWORK → resolved. The self-fetch/self-refresh model was cut (its B1/B2/B3 all traced to the widget fetching); v1 is **pure app-synced verbatim draw** per the critic's recommendation. S1–S6 folded in. `.superpowers/sdd/critic-017.md`.

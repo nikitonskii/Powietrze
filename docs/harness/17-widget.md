@@ -38,3 +38,16 @@ Verifier: AC-1..4 all VERIFIED (10 widget tests, non-tautological). Whole-branch
 ## Deferred / next
 - **Native gate (Task 4)** — do with the human in Xcode; then manual AC-5..8 + evidence/17.
 - Closed-app auto-refresh; lock-screen/StandBy/large/accessory widgets; per-station widget config intent; Android app widget (native module no-ops there).
+
+## Native gate — built + verified (app side), 2026-08-16
+Done via a New-Arch **local Turbo Module package** `react-native-widget-sync` (ADR-014):
+Swift module (`RCT_EXTERN_MODULE`, interop-served — pure codegen JSI wasn't viable
+because `WidgetCenter` is Swift-only and Swift can't import RN's C++ `ReactCodegen`
+module) + a WidgetKit **extension target** `PowietrzeWidget` reading the App Group.
+App + `PowietrzeWidgetExtension.appex` **BUILD SUCCEEDED**; on launch the app wrote a
+correct snapshot into the App Group (evidence/17/02 — verified live: Kraków, "12"
+µg/m³, Bardzo dobry, PM10 23/NO₂ 25/CO 286/C₆H₆ 0.29). Full step-by-step +
+recovery notes (target created in the wrong checkout, migrated via 3-way pbxproj
+apply; `background`→`snapshotBackground` fix): `docs/harness/native-gate-widget.md`.
+**Remaining:** AC-5..8 — human adds the widget to the sim home screen (its data source
+is proven). Deferred pure-JSI Turbo Module (ObjC++ shim) noted in ADR-014.

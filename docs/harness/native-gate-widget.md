@@ -88,3 +88,33 @@ Screenshot each → `docs/harness/evidence/17/`.
 `package.json`/podspec/spec/Swift). To extract: move the folder to its own repo,
 `npm publish`, swap the app's `file:` dep for the version range. The WidgetKit
 extension stays in the app and continues to read the shared App Group.
+
+---
+
+## Native gate — completed (app side), 2026-08-16
+
+Steps 1–8 done + verified; only Step 9 (human, add widget to home screen) remains.
+- **Target migration:** the Widget Extension target was first created in the *main
+  `develop` checkout* by mistake, not the `feature/m-widget` worktree. Recovered
+  without redoing Xcode work: copied the generated `PowietrzeWidget/` folder +
+  entitlements into the worktree and 3-way-applied the pbxproj target diff onto
+  `feature/m-widget` (develop is an ancestor, so it applied cleanly). Stray copies
+  left in the develop checkout for the human to discard (work is committed on the branch).
+- **Template reconciliation:** the target was generated with the config-intent/Control
+  options on → `AppIntent.swift` + `PowietrzeWidgetControl.swift` + a `WidgetBundle`.
+  Reduced the bundle to the single static `PowietrzeWidget`; neutralized the two extra
+  files (kept so pbxproj source refs resolve).
+- **Bug fixed:** the widget's `background(_:)` free function shadowed SwiftUI's
+  `View.background(_:)` → renamed `snapshotBackground(_:)`.
+- **App + `PowietrzeWidgetExtension.appex` BUILD SUCCEEDED** on the iPhone 16 Pro sim;
+  the appex embeds into `Powietrze.app/PlugIns/`.
+- **End-to-end data flow VERIFIED live:** on launch the RN app resolved the interop
+  `WidgetSync` Turbo Module and wrote a correct snapshot into the App Group — confirmed
+  by reading the container plist (`docs/harness/evidence/17/02-appgroup-snapshot.txt`):
+  version 1, Kraków, displayValue "12" µg/m³, band "Bardzo dobry", keyHex #5fe3a1,
+  tiles PM10 23 / NO₂ 25 / CO 286 / C₆H₆ 0.29, measuredAt 2026-08-16 11:00. App Group
+  entitlement is effective on the sim (no nil-assert crash).
+
+**Remaining — Step 9 (human):** add the small + medium widget to the sim home screen
+and confirm AC-5..8 (renders matching the hero; updates on active-place change;
+placeholder before first fetch). The data it will draw is already proven above.
