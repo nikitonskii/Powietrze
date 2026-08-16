@@ -55,8 +55,8 @@ export function SmogAlertProvider({
 
   useEffect(() => {
     if (status !== 'ready' || !reading) return;
-    const placeKey = placeKeyFor(active);
     const map = mapRef.current;
+    const placeKey = placeKeyFor(active);
     const prev = map.get(placeKey) ?? false;
     const d = smogAlertDecision(
       { wasAbove: prev },
@@ -64,7 +64,7 @@ export function SmogAlertProvider({
     );
     map.set(placeKey, d.wasAbove);
     if (d.fire) notifier.notifySmog(reading.index);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on status/reading/alert/threshold per spec; `active`/`notifier`/`clock` intentionally excluded (active read at fire-time; notifier/clock stable references)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on status/reading/alert/threshold per spec; `active`/`notifier`/`clock` intentionally excluded — all three are only READ when the effect fires, not used as reactive triggers: `active` reflects the current place at fire-time, `notifier` is a stable app-level instance, and `clock` (a fresh closure each render) always samples "now" at invocation regardless of which render created it.
   }, [status, reading, alert, threshold]);
 
   return <>{children}</>;
