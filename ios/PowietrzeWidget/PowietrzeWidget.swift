@@ -1,7 +1,6 @@
-// STAGING copy of the widget's SwiftUI. After creating the PowietrzeWidget target
-// (native-gate doc Step 4), replace the generated ios/PowietrzeWidget/PowietrzeWidget.swift
-// with this file's contents (native-gate doc Step 6). Draws the app-baked snapshot
-// verbatim — no CAQI math, no networking. App Group + key must match WidgetSync.swift.
+// Powietrze home-screen widget. Draws the app-baked snapshot (App Group) verbatim —
+// no CAQI math, no networking. App Group + key must match WidgetSync.swift.
+// `@main` lives on PowietrzeWidgetBundle; this file defines the widget it lists.
 import WidgetKit
 import SwiftUI
 
@@ -174,7 +173,6 @@ struct PowietrzeWidgetEntryView: View {
   }
 }
 
-@main
 struct PowietrzeWidget: Widget {
   let kind = "PowietrzeWidget"
   var body: some WidgetConfiguration {
