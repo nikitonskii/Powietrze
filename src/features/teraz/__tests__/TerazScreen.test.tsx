@@ -1,4 +1,5 @@
-import { render, screen, within } from '@testing-library/react-native';
+import { render, screen, within, act } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 import { TerazScreen } from '../TerazScreen';
 import { SettingsProvider } from '../../../shared/settings';
 import {
@@ -10,12 +11,25 @@ import {
   PlaceSourceProvider,
   ActivePlaceProvider,
 } from '../../../shared/place';
+import { RefreshProvider } from '../../../shared/refresh';
 import type { AirQualitySource, ReadingDetail } from '../../../core/air';
 import { usAqiFromPm25 } from '../../../core/air';
 import {
   fakeAirSource,
   pendingAirSource,
 } from '../../../shared/test/fakeAirSource';
+
+// The RN jest preset's RefreshControl mock stores the last-mounted instance on
+// `RefreshControl.latestRef`, exposing the exact props the screen passed —
+// used below to assert the pull-to-refresh wiring without any local mock.
+const refreshControlProps = () =>
+  (
+    RefreshControl as unknown as {
+      latestRef: {
+        props: { testID?: string; refreshing: boolean; onRefresh: () => void };
+      };
+    }
+  ).latestRef.props;
 
 const detail: ReadingDetail = {
   history: [
@@ -39,13 +53,15 @@ const settingsStore = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
 
 const wrap = (src: () => AirQualitySource, s: Settings = DEFAULT_SETTINGS) =>
   render(
-    <SettingsProvider store={settingsStore(s)}>
-      <PlaceSourceProvider sourceForPlace={src}>
-        <ActivePlaceProvider>
-          <TerazScreen />
-        </ActivePlaceProvider>
-      </PlaceSourceProvider>
-    </SettingsProvider>,
+    <RefreshProvider>
+      <SettingsProvider store={settingsStore(s)}>
+        <PlaceSourceProvider sourceForPlace={src}>
+          <ActivePlaceProvider>
+            <TerazScreen />
+          </ActivePlaceProvider>
+        </PlaceSourceProvider>
+      </SettingsProvider>
+    </RefreshProvider>,
   );
 
 test('spec-002 AC-8: renders the live reading — index, band, city, real pm25, atmosphere', async () => {
@@ -99,4 +115,29 @@ test('AC-5,7: scale US AQI → hero number is usAqiFromPm25(pm25)', async () => 
   const gradient = await screen.findByTestId('gradient-background');
   expect(within(gradient).getByText(String(usAqiFromPm25(122)))).toBeTruthy();
   expect(within(gradient).getByText('Zły')).toBeTruthy(); // band stays scene(reading.index)
+});
+
+test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
+  let calls = 0;
+  const countingSource = (): AirQualitySource => ({
+    getCurrentReading: () => {
+      calls++;
+      return fakeAirSource().getCurrentReading();
+    },
+  });
+  await wrap(() => countingSource());
+  await screen.findByTestId('gradient-background');
+  expect(calls).toBe(1);
+  expect(refreshControlProps().testID).toBe('refresh-control');
+  expect(refreshControlProps().refreshing).toBe(false); // no refresh in flight yet
+
+  // Pull-to-refresh: onRefresh is useRefresh().refresh — invoking it (as a pull
+  // gesture would) re-triggers the active place's fetch (proves the wiring).
+  await act(async () => {
+    refreshControlProps().onRefresh();
+  });
+  expect(calls).toBe(2);
+  // The active fetch settled within the flush → refreshing is back to false
+  // (ActivePlaceProvider's settleActive cleared it).
+  expect(refreshControlProps().refreshing).toBe(false);
 });

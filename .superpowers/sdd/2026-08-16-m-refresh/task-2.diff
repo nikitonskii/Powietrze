@@ -1,0 +1,527 @@
+### commits
+33706fc feat(refresh): fetch hooks refetch on signal; ActivePlace clears refreshing (AC-2, AC-3)
+
+### diff
+diff --git a/App.tsx b/App.tsx
+index f33dca8..19f74a6 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -17,20 +17,21 @@ import type { ActivePlace } from './src/core/places';
+ import type { Station } from './src/core/geo';
+ import {
+   PlaceSourceProvider,
+   StationsProvider,
+   FavoritesProvider,
+   ActivePlaceProvider,
+ } from './src/shared/place';
+ import { SettingsProvider } from './src/shared/settings';
+ import { NotificationsProvider } from './src/shared/notifications';
+ import { WidgetSyncProvider } from './src/shared/widget';
++import { RefreshProvider } from './src/shared/refresh';
+ import { AppNavigator } from './src/app/AppNavigator';
+ 
+ // Data-layer instances built once and injected (features never call data directly).
+ const nearest = createNearestStationSource(createDeviceGeolocation(), fetch);
+ const sourceForPlace = (p: ActivePlace) =>
+   p.kind === 'location' ? nearest : createStationSource(p.station, fetch);
+ const favoritesStore = createAsyncStorageFavoritesStore();
+ const settingsStore = createAsyncStorageSettingsStore();
+ const notifier = createNotifeeNotifier();
+ const widgetSync = createNativeWidgetSync();
+@@ -43,33 +44,35 @@ function App() {
+     fetchStations(fetch)
+       .then(list => on && setStations(list))
+       .catch(() => {});
+     return () => {
+       on = false;
+     };
+   }, []);
+ 
+   return (
+     <GestureHandlerRootView style={{ flex: 1 }}>
+-      <StationsProvider stations={stations}>
+-        <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+-          <FavoritesProvider store={favoritesStore}>
+-            <SettingsProvider store={settingsStore}>
+-              <NotificationsProvider notifier={notifier}>
+-                <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
+-                  <WidgetSyncProvider sync={widgetSync}>
+-                    <SafeAreaProvider>
+-                      <StatusBar barStyle="light-content" />
+-                      <AppNavigator />
+-                    </SafeAreaProvider>
+-                  </WidgetSyncProvider>
+-                </ActivePlaceProvider>
+-              </NotificationsProvider>
+-            </SettingsProvider>
+-          </FavoritesProvider>
+-        </PlaceSourceProvider>
+-      </StationsProvider>
++      <RefreshProvider>
++        <StationsProvider stations={stations}>
++          <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++            <FavoritesProvider store={favoritesStore}>
++              <SettingsProvider store={settingsStore}>
++                <NotificationsProvider notifier={notifier}>
++                  <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
++                    <WidgetSyncProvider sync={widgetSync}>
++                      <SafeAreaProvider>
++                        <StatusBar barStyle="light-content" />
++                        <AppNavigator />
++                      </SafeAreaProvider>
++                    </WidgetSyncProvider>
++                  </ActivePlaceProvider>
++                </NotificationsProvider>
++              </SettingsProvider>
++            </FavoritesProvider>
++          </PlaceSourceProvider>
++        </StationsProvider>
++      </RefreshProvider>
+     </GestureHandlerRootView>
+   );
+ }
+ 
+ export default App;
+diff --git a/src/shared/place/ActivePlaceContext.tsx b/src/shared/place/ActivePlaceContext.tsx
+index 35cd040..3425878 100644
+--- a/src/shared/place/ActivePlaceContext.tsx
++++ b/src/shared/place/ActivePlaceContext.tsx
+@@ -7,20 +7,21 @@ import {
+   type ReactNode,
+ } from 'react';
+ import type { ReadingDetail } from '../../core/air';
+ import type { Station } from '../../core/geo';
+ import {
+   defaultPlace,
+   LOCATION_PLACE,
+   type ActivePlace,
+ } from '../../core/places';
+ import { useSettings } from '../settings';
++import { useRefresh } from '../refresh';
+ import { usePlaceDetail } from './usePlaceDetail';
+ import { usePlaceReading, type ReadingState } from './usePlaceReading';
+ 
+ type ActivePlaceValue = {
+   active: ActivePlace;
+   setActive: (p: ActivePlace) => void;
+   detail?: ReadingDetail;
+ } & ReadingState;
+ 
+ const Ctx = createContext<ActivePlaceValue | null>(null);
+@@ -29,30 +30,38 @@ const Ctx = createContext<ActivePlaceValue | null>(null);
+ // Default follows the `loc` setting: location when on, else `defaultStation`
+ // (falls back to LOCATION_PLACE when no defaultStation is given, e.g. in tests).
+ export function ActivePlaceProvider({
+   defaultStation,
+   children,
+ }: {
+   defaultStation?: Station;
+   children: ReactNode;
+ }) {
+   const { settings } = useSettings();
++  const { settleActive } = useRefresh();
+   const target = defaultStation
+     ? defaultPlace(settings.loc, defaultStation)
+     : LOCATION_PLACE;
+   const [active, setActive] = useState<ActivePlace>(() => target);
+   useEffect(() => {
+     setActive(target);
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset default on loc change, not on the fresh `target` object each render
+   }, [settings.loc, defaultStation]);
+   const state = usePlaceReading(active);
+   const { detail } = usePlaceDetail(active);
++  // `state` gets a new reference every settle (ready or stale) — including the
++  // one triggered by a signal bump — so this clears `refreshing` once the
++  // active place's refetch completes. A harmless no-op when not refreshing
++  // (e.g. the initial mount / place-change settle).
++  useEffect(() => {
++    settleActive();
++  }, [state, settleActive]);
+   const value = useMemo<ActivePlaceValue>(
+     () => ({ active, setActive, detail, ...state }),
+     [active, state, detail],
+   );
+   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+ }
+ 
+ export function useActivePlace(): ActivePlaceValue {
+   const v = useContext(Ctx);
+   if (!v)
+diff --git a/src/shared/place/__tests__/ActivePlaceContext.test.tsx b/src/shared/place/__tests__/ActivePlaceContext.test.tsx
+index f069839..cefaff3 100644
+--- a/src/shared/place/__tests__/ActivePlaceContext.test.tsx
++++ b/src/shared/place/__tests__/ActivePlaceContext.test.tsx
+@@ -1,30 +1,32 @@
+ import {
+   render,
+   screen,
+   waitFor,
+   fireEvent,
++  act,
+ } from '@testing-library/react-native';
+ import { Text, Pressable } from 'react-native';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../PlaceSourceContext';
+ import { ActivePlaceProvider, useActivePlace } from '../ActivePlaceContext';
+ import { SettingsProvider, useSettings } from '../../settings';
+ import type { Station } from '../../../core/geo';
+ import type { Reading } from '../../../core/air';
+ import {
+   DEFAULT_SETTINGS,
+   type Settings,
+   type SettingsStore,
+ } from '../../../core/settings';
++import { RefreshProvider, useRefresh } from '../../refresh';
+ 
+ const store = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
+   load: async () => s,
+   save: async () => {},
+ });
+ 
+ const warsaw: Station = {
+   id: 530,
+   name: 'Warszawa, Al. Niepodległości',
+   city: 'Warszawa',
+@@ -138,10 +140,62 @@ test('AC-6: turning loc off resets active to the default station', async () => {
+     </PlaceSourceProvider>,
+   );
+   await waitFor(() =>
+     expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
+   );
+   fireEvent.press(screen.getByTestId('toggle-loc'));
+   await waitFor(() =>
+     expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
+   );
+ });
++
++function RefreshProbe() {
++  const { refreshing, refresh } = useRefresh();
++  return (
++    <>
++      <Text testID="refreshing">{refreshing ? 'true' : 'false'}</Text>
++      <Pressable testID="refresh-btn" onPress={refresh}>
++        <Text>refresh</Text>
++      </Pressable>
++    </>
++  );
++}
++
++test('AC-3/AC-3b: refreshing is false during initial load, true after refresh(), false once the active reading resettles', async () => {
++  let callCount = 0;
++  let resolveSecond: ((r: Reading) => void) | undefined;
++  const refreshingSourceForPlace: SourceForPlace = () => ({
++    getCurrentReading: () => {
++      callCount += 1;
++      if (callCount === 1) return Promise.resolve(rLoc);
++      return new Promise<Reading>(resolve => {
++        resolveSecond = resolve;
++      });
++    },
++  });
++
++  await render(
++    <RefreshProvider>
++      <PlaceSourceProvider sourceForPlace={refreshingSourceForPlace}>
++        <SettingsProvider store={store()}>
++          <ActivePlaceProvider>
++            <RefreshProbe />
++          </ActivePlaceProvider>
++        </SettingsProvider>
++      </PlaceSourceProvider>
++    </RefreshProvider>,
++  );
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++  await waitFor(() => expect(callCount).toBe(1));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(callCount).toBe(2);
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await act(async () => {
++    resolveSecond?.(rWaw);
++  });
++  await waitFor(() =>
++    expect(screen.getByTestId('refreshing').props.children).toBe('false'),
++  );
++});
+diff --git a/src/shared/place/__tests__/usePlaceDetail.test.tsx b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+index 5b612ad..c6b1aba 100644
+--- a/src/shared/place/__tests__/usePlaceDetail.test.tsx
++++ b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+@@ -1,19 +1,28 @@
+-import { renderHook, act, waitFor } from '@testing-library/react-native';
++import {
++  renderHook,
++  render,
++  screen,
++  act,
++  fireEvent,
++  waitFor,
++} from '@testing-library/react-native';
+ import type { ReactNode } from 'react';
++import { Pressable, Text } from 'react-native';
+ import { usePlaceDetail } from '../usePlaceDetail';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../PlaceSourceContext';
+ import { LOCATION_PLACE } from '../../../core/places';
+ import type { Reading, ReadingDetail } from '../../../core/air';
++import { RefreshProvider, useRefresh } from '../../refresh';
+ 
+ // Minimal real Reading (not `{} as any`) — getCurrentReading is unused by
+ // usePlaceDetail, but the stub source must still satisfy AirQualitySource.
+ const READING: Reading = {
+   index: 5,
+   pm25: 5,
+   measuredAt: '2026-08-13 12:00:00',
+   city: 'Kraków',
+   station: 'x',
+ };
+@@ -60,10 +69,63 @@ test('AC-7: rejected getDetail → detail undefined (no throw)', async () => {
+   const sfp: SourceForPlace = () => ({
+     getCurrentReading: async () => READING,
+     getDetail: () => Promise.reject(new Error('x')),
+   });
+   const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
+     wrapper: wrap(sfp),
+   });
+   await act(async () => {});
+   expect(result.current.detail).toBeUndefined();
+ });
++
++function RefreshDetailHarness() {
++  const { refresh } = useRefresh();
++  usePlaceDetail(LOCATION_PLACE);
++  return (
++    <Pressable testID="refresh-btn" onPress={refresh}>
++      <Text>refresh</Text>
++    </Pressable>
++  );
++}
++
++test('AC-2: usePlaceDetail refetches when the signal bumps, not on an unrelated re-render', async () => {
++  let calls = 0;
++  const sfp: SourceForPlace = () => ({
++    getCurrentReading: async () => READING,
++    getDetail: async () => {
++      calls += 1;
++      return detail;
++    },
++  });
++
++  await render(
++    <RefreshProvider>
++      <PlaceSourceProvider sourceForPlace={sfp}>
++        <RefreshDetailHarness />
++      </PlaceSourceProvider>
++    </RefreshProvider>,
++  );
++  await waitFor(() => expect(calls).toBe(1));
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  await waitFor(() => expect(calls).toBe(2));
++
++  // The second press is debounced by RefreshProvider (signal unchanged) — no refetch.
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(calls).toBe(2);
++});
++
++test('AC-2: unwrapped (no RefreshProvider) — usePlaceDetail still works, 1 call, no throw', async () => {
++  let calls = 0;
++  const sfp: SourceForPlace = () => ({
++    getCurrentReading: async () => READING,
++    getDetail: async () => {
++      calls += 1;
++      return detail;
++    },
++  });
++  const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
++    wrapper: wrap(sfp),
++  });
++  await waitFor(() => expect(result.current.detail).toEqual(detail));
++  expect(calls).toBe(1);
++});
+diff --git a/src/shared/place/__tests__/usePlaceReading.test.tsx b/src/shared/place/__tests__/usePlaceReading.test.tsx
+index ade0730..2594b38 100644
+--- a/src/shared/place/__tests__/usePlaceReading.test.tsx
++++ b/src/shared/place/__tests__/usePlaceReading.test.tsx
+@@ -1,19 +1,26 @@
+-import { render, screen, waitFor } from '@testing-library/react-native';
+-import { Text } from 'react-native';
++import {
++  render,
++  screen,
++  waitFor,
++  fireEvent,
++} from '@testing-library/react-native';
++import { useState } from 'react';
++import { Pressable, Text } from 'react-native';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../PlaceSourceContext';
+ import { usePlaceReading } from '../usePlaceReading';
+ import { LOCATION_PLACE } from '../../../core/places';
+ import type { Reading } from '../../../core/air';
++import { RefreshProvider, useRefresh } from '../../refresh';
+ 
+ const READING: Reading = {
+   index: 42,
+   pm25: 43,
+   measuredAt: '2026-08-11 21:00:00',
+   city: 'Warszawa',
+   station: 'x',
+ };
+ 
+ function Probe() {
+@@ -39,10 +46,66 @@ test('AC 006-6b: resolves to ready and exposes the reading', async () => {
+   await wrap(() => ({ getCurrentReading: () => Promise.resolve(READING) }));
+   await waitFor(() => expect(screen.getByText('ready:42')).toBeTruthy());
+ });
+ 
+ test('AC 006-6b: a rejecting source becomes stale, no reading, no throw', async () => {
+   await wrap(() => ({
+     getCurrentReading: () => Promise.reject(new Error('net')),
+   }));
+   await waitFor(() => expect(screen.getByText('stale:-')).toBeTruthy());
+ });
++
++function RefreshHarness() {
++  const { refresh } = useRefresh();
++  const [tick, setTick] = useState(0);
++  usePlaceReading(LOCATION_PLACE);
++  return (
++    <>
++      <Text>{`tick:${tick}`}</Text>
++      <Pressable testID="refresh-btn" onPress={refresh}>
++        <Text>refresh</Text>
++      </Pressable>
++      <Pressable testID="rerender-btn" onPress={() => setTick(n => n + 1)}>
++        <Text>rerender</Text>
++      </Pressable>
++    </>
++  );
++}
++
++test('AC-2: usePlaceReading refetches when the signal bumps, not on an unrelated re-render', async () => {
++  let calls = 0;
++  const sourceForPlace: SourceForPlace = () => ({
++    getCurrentReading: () => {
++      calls += 1;
++      return Promise.resolve(READING);
++    },
++  });
++
++  await render(
++    <RefreshProvider>
++      <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++        <RefreshHarness />
++      </PlaceSourceProvider>
++    </RefreshProvider>,
++  );
++  await waitFor(() => expect(calls).toBe(1));
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  await waitFor(() => expect(calls).toBe(2));
++
++  // A re-render that leaves the signal unchanged must not refetch.
++  await fireEvent.press(screen.getByTestId('rerender-btn'));
++  expect(screen.getByText('tick:1')).toBeTruthy();
++  expect(calls).toBe(2);
++});
++
++test('AC-2: unwrapped (no RefreshProvider) — usePlaceReading still works, 1 call, no throw', async () => {
++  let calls = 0;
++  await wrap(() => ({
++    getCurrentReading: () => {
++      calls += 1;
++      return Promise.resolve(READING);
++    },
++  }));
++  await waitFor(() => expect(screen.getByText('ready:42')).toBeTruthy());
++  expect(calls).toBe(1);
++});
+diff --git a/src/shared/place/usePlaceDetail.ts b/src/shared/place/usePlaceDetail.ts
+index efc8426..24f56f7 100644
+--- a/src/shared/place/usePlaceDetail.ts
++++ b/src/shared/place/usePlaceDetail.ts
+@@ -1,27 +1,29 @@
+ import { useEffect, useState } from 'react';
+ import type { ReadingDetail } from '../../core/air';
+ import type { ActivePlace } from '../../core/places';
++import { useRefreshSignal } from '../refresh';
+ import { useSourceForPlace } from './PlaceSourceContext';
+ 
+ // Fetches rich detail (24h history + PM10/NO2) for the ACTIVE place only, once
+ // per place identity. Mirrors usePlaceReading. Absent getDetail or a rejection
+ // → detail stays undefined (Teraz degrades to Hero-only).
+ export function usePlaceDetail(place: ActivePlace): { detail?: ReadingDetail } {
+   const sourceForPlace = useSourceForPlace();
++  const signal = useRefreshSignal();
+   const [detail, setDetail] = useState<ReadingDetail | undefined>(undefined);
+   const placeKey =
+     place.kind === 'location' ? 'location' : `station:${place.station.id}`;
+   useEffect(() => {
+     let active = true;
+     setDetail(undefined); // reset while the new place's detail loads
+     sourceForPlace(place)
+       .getDetail?.()
+       .then(d => active && setDetail(d))
+       .catch(() => active && setDetail(undefined));
+     return () => {
+       active = false;
+     };
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
+-  }, [sourceForPlace, placeKey]);
++  }, [sourceForPlace, placeKey, signal]);
+   return { detail };
+ }
+diff --git a/src/shared/place/usePlaceReading.ts b/src/shared/place/usePlaceReading.ts
+index 04a650a..d79648a 100644
+--- a/src/shared/place/usePlaceReading.ts
++++ b/src/shared/place/usePlaceReading.ts
+@@ -1,37 +1,39 @@
+ import { useEffect, useState } from 'react';
+ import type { Reading } from '../../core/air';
+ import type { ActivePlace } from '../../core/places';
++import { useRefreshSignal } from '../refresh';
+ import { useSourceForPlace } from './PlaceSourceContext';
+ 
+ export type ReadingState =
+   | { status: 'loading'; reading?: Reading }
+   | { status: 'ready'; reading: Reading }
+   | { status: 'stale'; reading?: Reading };
+ 
+ // Fetches once when the place's IDENTITY changes. On rejection → 'stale',
+ // keeping the last reading if any. The effect is keyed on `placeKey` (a
+ // primitive) rather than the `place` object, so a caller passing a fresh
+ // `{kind:'station',station}` literal every render (e.g. each favorites-list
+ // row) does NOT refire the fetch on unrelated re-renders.
+ export function usePlaceReading(place: ActivePlace): ReadingState {
+   const sourceForPlace = useSourceForPlace();
++  const signal = useRefreshSignal();
+   const [state, setState] = useState<ReadingState>({ status: 'loading' });
+   const placeKey =
+     place.kind === 'location' ? 'location' : `station:${place.station.id}`;
+   useEffect(() => {
+     let active = true;
+     sourceForPlace(place)
+       .getCurrentReading()
+       .then(r => active && setState({ status: 'ready', reading: r }))
+       .catch(
+         () =>
+           active &&
+           setState(prev => ({ status: 'stale', reading: prev.reading })),
+       );
+     return () => {
+       active = false;
+     };
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
+-  }, [sourceForPlace, placeKey]);
++  }, [sourceForPlace, placeKey, signal]);
+   return state;
+ }

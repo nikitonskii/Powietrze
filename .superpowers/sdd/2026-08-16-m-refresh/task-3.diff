@@ -1,0 +1,442 @@
+### commits
+0c8d22b feat(refresh): pull-to-refresh control on Teraz + Miejsca
+
+### diff
+diff --git a/src/features/miejsca/MiejscaScreen.tsx b/src/features/miejsca/MiejscaScreen.tsx
+index f838cbe..f3f58e1 100644
+--- a/src/features/miejsca/MiejscaScreen.tsx
++++ b/src/features/miejsca/MiejscaScreen.tsx
+@@ -1,52 +1,62 @@
+ import { useMemo, useState } from 'react';
+-import { ScrollView, StyleSheet, View } from 'react-native';
++import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
+ import {
+   searchStations,
+   LOCATION_PLACE,
+   type ActivePlace,
+ } from '../../core/places';
+ import { stationLabel } from '../../core/geo';
+ import { colors, spacing } from '../../shared/tokens';
+ import { Text } from '../../shared/ui/Text';
+ import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
+ import { useActivePlace, useFavorites, useStations } from '../../shared/place';
++import { useRefresh } from '../../shared/refresh';
+ import { DraggableFavorites } from './DraggableFavorites';
+ import { PlaceRow } from './PlaceRow';
+ import { SaveButton } from './SaveButton';
+ import { SearchField } from './SearchField';
+ import { MAX_VISIBLE_RESULTS } from './constants';
+ 
+ export function MiejscaScreen() {
+   const [query, setQuery] = useState('');
+   const debouncedQuery = useDebouncedValue(query, 300);
+   const stations = useStations();
+   const { favorites, remove, reorder } = useFavorites();
+   const { setActive } = useActivePlace();
++  const { refresh, refreshing } = useRefresh();
+   const navigation = useNavigation<{ navigate: (n: string) => void }>();
+   const results = useMemo(
+     () =>
+       searchStations(stations, debouncedQuery).slice(0, MAX_VISIBLE_RESULTS),
+     [stations, debouncedQuery],
+   );
+ 
+   const open = (place: ActivePlace) => {
+     setActive(place);
+     navigation.navigate('Teraz');
+   };
+ 
+   return (
+     <ScrollView
+       testID="screen-miejsca"
+       style={styles.screen}
+       contentContainerStyle={styles.content}
++      refreshControl={
++        <RefreshControl
++          refreshing={refreshing}
++          onRefresh={refresh}
++          tintColor={colors.text.dim}
++          testID="refresh-control"
++        />
++      }
+     >
+       <Text variant="city" style={styles.header}>
+         Miejsca
+       </Text>
+       <SearchField value={query} onChangeText={setQuery} />
+ 
+       {query.trim() ? (
+         <View style={styles.list}>
+           {results.map(s => (
+             <PlaceRow
+diff --git a/src/features/miejsca/__tests__/MiejscaScreen.test.tsx b/src/features/miejsca/__tests__/MiejscaScreen.test.tsx
+index 8998147..8bbd761 100644
+--- a/src/features/miejsca/__tests__/MiejscaScreen.test.tsx
++++ b/src/features/miejsca/__tests__/MiejscaScreen.test.tsx
+@@ -7,20 +7,21 @@ import {
+ import realStations from '../../../core/geo/__fixtures__/stations.json';
+ import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { MiejscaScreen } from '../MiejscaScreen';
+ import {
+   PlaceSourceProvider,
+   ActivePlaceProvider,
+   FavoritesProvider,
+   StationsProvider,
+   type SourceForPlace,
+ } from '../../../shared/place';
++import { RefreshProvider } from '../../../shared/refresh';
+ import { SettingsProvider } from '../../../shared/settings';
+ import { DEFAULT_SETTINGS, type SettingsStore } from '../../../core/settings';
+ import type { FavoritesStore } from '../../../core/places';
+ import type { Station } from '../../../core/geo';
+ import type { Reading } from '../../../core/air';
+ 
+ // `any`: untyped GIOŚ fixture JSON, read positionally only in this test setup.
+ const S: Station[] = (realStations as any)['Lista stacji pomiarowych'].map(
+   (e: any) => ({
+     id: e['Identyfikator stacji'],
+@@ -39,60 +40,116 @@ const anyReading: Reading = {
+ };
+ const sfp: SourceForPlace = () => ({
+   getCurrentReading: () => Promise.resolve(anyReading),
+ });
+ 
+ const mockNavigate = jest.fn();
+ jest.mock('@react-navigation/native', () => ({
+   useNavigation: () => ({ navigate: mockNavigate }),
+ }));
+ 
++// The RN jest preset's RefreshControl mock renders a bare host node and
++// drops every prop (including testID), so the real one is unqueryable.
++// Forward the props we need to assert wiring (testID/refreshing/onRefresh).
++jest.mock(
++  'react-native/Libraries/Components/RefreshControl/RefreshControl',
++  () => {
++    // Require the View submodule directly (already mocked by the RN jest
++    // preset) — going through the 'react-native' index would re-import this
++    // very module and create a circular reference.
++    const View = require('react-native/Libraries/Components/View/View').default;
++    function RefreshControl(props: {
++      testID?: string;
++      refreshing: boolean;
++      onRefresh?: () => void;
++    }) {
++      return (
++        <View
++          testID={props.testID}
++          accessibilityState={{ busy: props.refreshing }}
++          onPress={props.onRefresh}
++        />
++      );
++    }
++    // react-native/index.js reads `require(path).default` directly (no
++    // babel interop), so the mock must expose an explicit default export.
++    return { __esModule: true, default: RefreshControl };
++  },
++);
++
+ const w = S.find(s => s.id === 530)!; // Warszawa
+ const g = S.find(s => s.id === 706)!; // Gdańsk
+ 
+ function makeStore(
+   initial: Station[] = [],
+ ): FavoritesStore & { saved: Station[][] } {
+   const saved: Station[][] = [];
+   return {
+     saved,
+     load: async () => initial,
+     save: async l => {
+       saved.push(l);
+     },
+   };
+ }
+ const settingsStore: SettingsStore = {
+   load: async () => DEFAULT_SETTINGS,
+   save: async () => {},
+ };
+-const renderScreen = (store: FavoritesStore) =>
++const renderScreen = (
++  store: FavoritesStore,
++  sourceForPlace: SourceForPlace = sfp,
++) =>
+   render(
+-    <SettingsProvider store={settingsStore}>
+-      <StationsProvider stations={S}>
+-        <PlaceSourceProvider sourceForPlace={sfp}>
+-          <FavoritesProvider store={store}>
+-            <ActivePlaceProvider>
+-              <MiejscaScreen />
+-            </ActivePlaceProvider>
+-          </FavoritesProvider>
+-        </PlaceSourceProvider>
+-      </StationsProvider>
+-    </SettingsProvider>,
++    <RefreshProvider>
++      <SettingsProvider store={settingsStore}>
++        <StationsProvider stations={S}>
++          <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++            <FavoritesProvider store={store}>
++              <ActivePlaceProvider>
++                <MiejscaScreen />
++              </ActivePlaceProvider>
++            </FavoritesProvider>
++          </PlaceSourceProvider>
++        </StationsProvider>
++      </SettingsProvider>
++    </RefreshProvider>,
+   );
+ 
+ test('AC 006-8: default shows the pinned location row and the empty hint', async () => {
+   await renderScreen(makeStore());
+   expect(screen.getByText('Twoja lokalizacja')).toBeTruthy();
+   expect(screen.getByText('Wyszukaj i dodaj miejsce')).toBeTruthy();
+ });
+ 
++test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
++  let calls = 0;
++  const countingSfp: SourceForPlace = () => ({
++    getCurrentReading: () => {
++      calls++;
++      return Promise.resolve(anyReading);
++    },
++  });
++  await renderScreen(makeStore(), countingSfp);
++  // Initial mount: the pinned location row AND ActivePlaceProvider's active
++  // reading both fetch the location place once.
++  await waitFor(() => expect(calls).toBe(2));
++  expect(
++    screen.getByTestId('refresh-control').props.accessibilityState.busy,
++  ).toBe(false);
++
++  // Pull-to-refresh: the RefreshControl's onRefresh is useRefresh().refresh —
++  // firing it re-triggers both fetches (proves the wiring).
++  await fireEvent.press(screen.getByTestId('refresh-control'));
++  expect(calls).toBe(4);
++});
++
+ test('AC 006-9: search filters, + adds a favorite (persists), tap previews + navigates', async () => {
+   const store = makeStore();
+   await renderScreen(store);
+   fireEvent.changeText(screen.getByTestId('search-input'), 'krak');
+   expect(await screen.findByText('Kraków')).toBeTruthy();
+   await screen.findByText('4'); // the result's live reading settled (avoids act races)
+   fireEvent.press(screen.getByTestId('save-400'));
+   await waitFor(() => expect(store.saved).toHaveLength(1));
+   expect(store.saved[0].map(s => s.id)).toEqual([400]);
+   fireEvent.press(screen.getByTestId('result-400'));
+diff --git a/src/features/teraz/TerazScreen.tsx b/src/features/teraz/TerazScreen.tsx
+index 59cd73b..ac34682 100644
+--- a/src/features/teraz/TerazScreen.tsx
++++ b/src/features/teraz/TerazScreen.tsx
+@@ -1,30 +1,32 @@
+-import { ScrollView, StyleSheet, View } from 'react-native';
++import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { scene } from '../../core/scene';
+ import {
+   displayValue,
+   formatConcentration,
+   formatFreshness,
+   scaleLabel,
+ } from '../../core/air';
+ import { Atmosphere } from '../../shared/ui/Atmosphere';
+ import { GradientBackground } from '../../shared/ui/GradientBackground';
+ import { HistoryChart } from '../../shared/ui/HistoryChart';
+ import { PollutantTiles } from '../../shared/ui/PollutantTiles';
+ import { colors, spacing } from '../../shared/tokens';
+ import { useActivePlace } from '../../shared/place';
++import { useRefresh } from '../../shared/refresh';
+ import { useSettings } from '../../shared/settings';
+ import { Hero } from './Hero';
+ 
+ export function TerazScreen() {
+   const { active, reading, detail } = useActivePlace();
+   const { settings } = useSettings();
++  const { refresh, refreshing } = useRefresh();
+   if (!reading) {
+     return <View testID="teraz-loading" style={styles.loading} />;
+   }
+   const s = scene(reading.index);
+   const eyebrow = active.kind === 'location' ? 'TWOJA LOKALIZACJA' : 'MIEJSCE';
+   const place = {
+     city: reading.city,
+     station: reading.station,
+     freshness: formatFreshness(reading.measuredAt, new Date()),
+     index: reading.index,
+@@ -39,21 +41,31 @@ export function TerazScreen() {
+     settings.scale === 'µg/m³'
+       ? null
+       : `PM2.5 · ${formatConcentration(
+           reading.pm25,
+           settings.precision,
+         )} µg/m³`;
+   const scaleCaption = scaleLabel(settings.scale);
+   return (
+     <GradientBackground scene={s}>
+       <Atmosphere scene={s} />
+-      <ScrollView contentContainerStyle={styles.content}>
++      <ScrollView
++        contentContainerStyle={styles.content}
++        refreshControl={
++          <RefreshControl
++            refreshing={refreshing}
++            onRefresh={refresh}
++            tintColor={colors.text.dim}
++            testID="refresh-control"
++          />
++        }
++      >
+         <Hero
+           scene={s}
+           place={place}
+           value={value}
+           pm25Label={pm25Label}
+           scaleCaption={scaleCaption}
+           eyebrow={eyebrow}
+         />
+         {detail && (
+           <View style={styles.detail}>
+diff --git a/src/features/teraz/__tests__/TerazScreen.test.tsx b/src/features/teraz/__tests__/TerazScreen.test.tsx
+index 95525f4..9088eb8 100644
+--- a/src/features/teraz/__tests__/TerazScreen.test.tsx
++++ b/src/features/teraz/__tests__/TerazScreen.test.tsx
+@@ -1,29 +1,64 @@
+-import { render, screen, within } from '@testing-library/react-native';
++import {
++  render,
++  screen,
++  within,
++  fireEvent,
++} from '@testing-library/react-native';
+ import { TerazScreen } from '../TerazScreen';
+ import { SettingsProvider } from '../../../shared/settings';
+ import {
+   DEFAULT_SETTINGS,
+   type Settings,
+   type SettingsStore,
+ } from '../../../core/settings';
+ import {
+   PlaceSourceProvider,
+   ActivePlaceProvider,
+ } from '../../../shared/place';
++import { RefreshProvider } from '../../../shared/refresh';
+ import type { AirQualitySource, ReadingDetail } from '../../../core/air';
+ import { usAqiFromPm25 } from '../../../core/air';
+ import {
+   fakeAirSource,
+   pendingAirSource,
+ } from '../../../shared/test/fakeAirSource';
+ 
++// The RN jest preset's RefreshControl mock renders a bare host node and
++// drops every prop (including testID), so the real one is unqueryable.
++// Forward the props we need to assert wiring (testID/refreshing/onRefresh).
++jest.mock(
++  'react-native/Libraries/Components/RefreshControl/RefreshControl',
++  () => {
++    // Require the View submodule directly (already mocked by the RN jest
++    // preset) — going through the 'react-native' index would re-import this
++    // very module and create a circular reference.
++    const View = require('react-native/Libraries/Components/View/View').default;
++    function RefreshControl(props: {
++      testID?: string;
++      refreshing: boolean;
++      onRefresh?: () => void;
++    }) {
++      return (
++        <View
++          testID={props.testID}
++          accessibilityState={{ busy: props.refreshing }}
++          onPress={props.onRefresh}
++        />
++      );
++    }
++    // react-native/index.js reads `require(path).default` directly (no
++    // babel interop), so the mock must expose an explicit default export.
++    return { __esModule: true, default: RefreshControl };
++  },
++);
++
+ const detail: ReadingDetail = {
+   history: [
+     { at: 'a', pm25: 10, index: 10 },
+     { at: 'b', pm25: 20, index: 20 },
+   ],
+   pollutants: [
+     { code: 'PM10', value: 40 },
+     { code: 'NO2', value: 22 },
+   ],
+ };
+@@ -32,27 +67,29 @@ const detailedSource = (): AirQualitySource => ({
+   getDetail: async () => detail,
+ });
+ 
+ const settingsStore = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
+   load: async () => s,
+   save: async () => {},
+ });
+ 
+ const wrap = (src: () => AirQualitySource, s: Settings = DEFAULT_SETTINGS) =>
+   render(
+-    <SettingsProvider store={settingsStore(s)}>
+-      <PlaceSourceProvider sourceForPlace={src}>
+-        <ActivePlaceProvider>
+-          <TerazScreen />
+-        </ActivePlaceProvider>
+-      </PlaceSourceProvider>
+-    </SettingsProvider>,
++    <RefreshProvider>
++      <SettingsProvider store={settingsStore(s)}>
++        <PlaceSourceProvider sourceForPlace={src}>
++          <ActivePlaceProvider>
++            <TerazScreen />
++          </ActivePlaceProvider>
++        </PlaceSourceProvider>
++      </SettingsProvider>
++    </RefreshProvider>,
+   );
+ 
+ test('spec-002 AC-8: renders the live reading — index, band, city, real pm25, atmosphere', async () => {
+   await wrap(() => fakeAirSource());
+   const gradient = await screen.findByTestId('gradient-background');
+   expect(within(gradient).getByText('118')).toBeTruthy();
+   expect(within(gradient).getByText('Zły')).toBeTruthy();
+   expect(within(gradient).getByText('Kraków')).toBeTruthy();
+   expect(within(gradient).getByText('PM2.5 · 122 µg/m³')).toBeTruthy();
+   expect(within(gradient).getByText('TWOJA LOKALIZACJA')).toBeTruthy();
+@@ -93,10 +130,36 @@ test('AC-5,5b: scale µg/m³ → hero number is the formatted concentration, no
+ 
+ test('AC-5,7: scale US AQI → hero number is usAqiFromPm25(pm25)', async () => {
+   await wrap(() => fakeAirSource(), {
+     ...DEFAULT_SETTINGS,
+     scale: 'US AQI',
+   });
+   const gradient = await screen.findByTestId('gradient-background');
+   expect(within(gradient).getByText(String(usAqiFromPm25(122)))).toBeTruthy();
+   expect(within(gradient).getByText('Zły')).toBeTruthy(); // band stays scene(reading.index)
+ });
++
++test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
++  let calls = 0;
++  const countingSource = (): AirQualitySource => ({
++    getCurrentReading: () => {
++      calls++;
++      return fakeAirSource().getCurrentReading();
++    },
++  });
++  await wrap(() => countingSource());
++  await screen.findByTestId('gradient-background');
++  expect(calls).toBe(1);
++  expect(
++    screen.getByTestId('refresh-control').props.accessibilityState.busy,
++  ).toBe(false); // no refresh in flight yet
++
++  // Pull-to-refresh: the RefreshControl's onRefresh is useRefresh().refresh —
++  // firing it re-triggers the active place's fetch (proves the wiring).
++  await fireEvent.press(screen.getByTestId('refresh-control'));
++  expect(calls).toBe(2);
++  // The active fetch settled within the same act() flush → refreshing is
++  // back to false (ActivePlaceProvider's settleActive cleared it).
++  expect(
++    screen.getByTestId('refresh-control').props.accessibilityState.busy,
++  ).toBe(false);
++});

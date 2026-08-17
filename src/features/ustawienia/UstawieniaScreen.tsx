@@ -15,7 +15,6 @@ function ToggleRow({
   keyName,
   title,
   subtitle,
-  soon,
   testID,
   value,
   onValueChange,
@@ -23,7 +22,6 @@ function ToggleRow({
   keyName: string;
   title: string;
   subtitle?: string;
-  soon?: boolean;
   testID: string;
   value: boolean;
   onValueChange: (next: boolean) => void;
@@ -33,7 +31,6 @@ function ToggleRow({
       keyName={keyName}
       title={title}
       subtitle={subtitle}
-      soon={soon}
       trailing={
         <Toggle testID={testID} value={value} onValueChange={onValueChange} />
       }
@@ -45,23 +42,16 @@ function ToggleRow({
 function StackedRow({
   keyName,
   title,
-  soon,
   children,
 }: {
   keyName: string;
   title: string;
-  soon?: boolean;
   children: ReactNode;
 }) {
   return (
     <View testID={`setting-${keyName}`} style={styles.stacked}>
       <View style={styles.titleLine}>
         <Text style={rowHeaderStyles.title}>{title}</Text>
-        {soon && (
-          <Text testID={`wkrotce-${keyName}`} style={rowHeaderStyles.soon}>
-            Wkrótce
-          </Text>
-        )}
       </View>
       {children}
     </View>
@@ -96,24 +86,18 @@ function PowiadomieniaGroup({ settings, set }: GroupProps) {
       <ToggleRow
         keyName="alert"
         title="Alert smogowy"
-        soon
         testID="toggle-alert"
         value={settings.alert}
         onValueChange={v => set('alert', v)}
       />
-      <StackedRow keyName="threshold" title="Próg alertu" soon>
+      <StackedRow keyName="threshold" title="Próg alertu">
         <ThresholdSlider
           testID="slider-threshold"
           value={settings.threshold}
           onChange={v => set('threshold', v)}
         />
       </StackedRow>
-      <SettingRow
-        keyName="quiet"
-        title="Godziny ciszy"
-        soon
-        value="22:00 – 07:00"
-      />
+      <SettingRow keyName="quiet" title="Godziny ciszy" value="22:00 – 07:00" />
       <ToggleRow
         keyName="morning"
         title="Poranne podsumowanie"

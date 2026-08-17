@@ -1,0 +1,3 @@
+{
+  "widgetSnapshot" => "{"version":1,"city":"Kraków","stationLabel":"Aleja Krasińskiego · stacja GIOŚ","displayValue":"12","scaleCaption":"µg/m³","band":"Bardzo dobry","keyHex":"#5fe3a1","deepHex":"#04231a","midHex":"#0a3a2a","tiles":[{"label":"PM10","value":"23","unit":"µg/m³"},{"label":"NO₂","value":"25","unit":"µg/m³"},{"label":"CO","value":"286","unit":"µg/m³"},{"label":"C₆H₆","value":"0.29","unit":"µg/m³"}],"measuredAt":"2026-08-16 11:00:00"}"
+}

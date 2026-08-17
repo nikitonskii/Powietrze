@@ -4,7 +4,7 @@ import { HistoryChart } from '../HistoryChart';
 import { scene } from '../../../core/scene';
 import {
   historyBarOpacity,
-  barHeightPct,
+  barHeights,
   type HourPoint,
 } from '../../../core/air';
 
@@ -13,21 +13,27 @@ const H: HourPoint[] = [
   { at: 'b', pm25: 200, index: 200 },
 ];
 
-test('AC-8: header + axis labels + bar color/opacity/height', async () => {
+test('AC-8: header + axis labels + bar color/opacity + normalized height', async () => {
   await render(<HistoryChart history={H} />);
   expect(screen.getByTestId('chart-clock')).toBeTruthy();
   expect(screen.getByText('OSTATNIE 24 GODZINY')).toBeTruthy();
   for (const l of ['12:00', '18:00', '00:00', '06:00', 'teraz']) {
     expect(screen.getByText(l)).toBeTruthy();
   }
+  const heights = barHeights(H); // min→floor (22%), max→100%
   const b0 = StyleSheet.flatten(screen.getByTestId('bar-0').props.style);
-  expect(b0.backgroundColor).toBe(scene(10).key);
+  expect(b0.backgroundColor).toBe(scene(10).key); // color still = absolute band
   expect(b0.opacity).toBe(historyBarOpacity(0, 2));
-  expect(b0.height).toBe(`${barHeightPct(10)}%`);
+  expect(b0.height).toBe(`${heights[0]}%`);
   const b1 = StyleSheet.flatten(screen.getByTestId('bar-1').props.style);
   expect(b1.backgroundColor).toBe(scene(200).key);
   expect(b1.opacity).toBe(1);
-  expect(b1.height).toBe('100%');
+  expect(b1.height).toBe(`${heights[1]}%`);
+});
+
+test('AC-8: numeric CAQI range readout shows the window min–max', async () => {
+  await render(<HistoryChart history={H} />);
+  expect(screen.getByText('CAQI 10–200')).toBeTruthy();
 });
 
 test('AC-8: single-point history → opacity 1 (no NaN)', async () => {

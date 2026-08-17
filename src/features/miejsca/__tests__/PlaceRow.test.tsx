@@ -5,6 +5,7 @@ import {
   fireEvent,
   act,
 } from '@testing-library/react-native';
+import type { ReactNode } from 'react';
 import { Text as RNText } from 'react-native';
 import { PlaceRow } from '../PlaceRow';
 import {
@@ -12,6 +13,7 @@ import {
   type SourceForPlace,
 } from '../../../shared/place';
 import { SettingsProvider } from '../../../shared/settings';
+import { RefreshProvider, useRefresh } from '../../../shared/refresh';
 import {
   DEFAULT_SETTINGS,
   type Settings,
@@ -19,7 +21,7 @@ import {
 } from '../../../core/settings';
 import type { Station } from '../../../core/geo';
 import type { Reading } from '../../../core/air';
-import { displayValue } from '../../../core/air';
+import { displayValue, formatFreshness } from '../../../core/air';
 import { scene, trendArrow } from '../../../core/scene';
 import { colorOf } from '../../../shared/test/colorOf';
 
@@ -134,4 +136,89 @@ test('AC-5: the big number honors settings.scale/precision, color stays scene(in
   const expected = displayValue(42, 43, 'µg/m³', 'Dokładna'); // '43.0'
   const el = await screen.findByText(expected);
   expect(colorOf(el)).toBe(scene(42).key);
+});
+
+// Exposes a `refresh-btn` that calls useRefresh().refresh(), so a test can
+// trigger a refetch and drive `usePlaceReading` from 'ready' to 'stale'.
+function RefreshHarness({ children }: { children: ReactNode }) {
+  const { refresh } = useRefresh();
+  return (
+    <>
+      <RNText testID="refresh-btn" onPress={refresh}>
+        refresh
+      </RNText>
+      {children}
+    </>
+  );
+}
+
+describe('AC-4: row data age', () => {
+  const now = new Date('2026-08-11T22:00:00');
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('AC-4: a ready row renders the reading age', async () => {
+    await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) }));
+    await screen.findByText('42');
+    expect(
+      screen.getByText(formatFreshness(reading.measuredAt, now)),
+    ).toBeTruthy();
+  });
+
+  test('AC-4: a stale row that still has a last reading also renders the age', async () => {
+    let calls = 0;
+    const sfp: SourceForPlace = () => ({
+      getCurrentReading: () => {
+        calls += 1;
+        // First fetch (mount) succeeds; the refresh-triggered refetch fails,
+        // flipping status to 'stale' while the hook keeps the last reading.
+        return calls === 1
+          ? Promise.resolve(reading)
+          : Promise.reject(new Error('down'));
+      },
+    });
+    await render(
+      <SettingsProvider store={settingsStore()}>
+        <RefreshProvider>
+          <PlaceSourceProvider sourceForPlace={sfp}>
+            <RefreshHarness>
+              <PlaceRow
+                place={{ kind: 'station', station: w }}
+                title="Warszawa"
+                subtitle="Al. Niepodległości"
+                onPress={() => {}}
+                testID="row-530"
+              />
+            </RefreshHarness>
+          </PlaceSourceProvider>
+        </RefreshProvider>
+      </SettingsProvider>,
+    );
+    await screen.findByText('42');
+    await fireEvent.press(screen.getByTestId('refresh-btn'));
+    // The refetch rejected (status → 'stale'), but the hook keeps the last
+    // reading, so the row still shows the index — plus the age line.
+    await waitFor(() => expect(calls).toBe(2));
+    expect(screen.getByText('42')).toBeTruthy();
+    expect(
+      screen.getByText(formatFreshness(reading.measuredAt, now)),
+    ).toBeTruthy();
+  });
+
+  test('AC-4: a row with no reading ("brak danych") renders no age line', async () => {
+    await wrap(() => ({
+      getCurrentReading: () => Promise.reject(new Error('down')),
+    }));
+    await screen.findByText('brak danych');
+    expect(
+      screen.queryByText(formatFreshness(reading.measuredAt, now)),
+    ).toBeNull();
+  });
 });
