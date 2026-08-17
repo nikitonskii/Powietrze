@@ -1,5 +1,14 @@
-import { buildHistory, historyBarOpacity, barHeightPct } from '../history';
+import {
+  buildHistory,
+  historyBarOpacity,
+  barHeights,
+  indexRange,
+  type HourPoint,
+} from '../history';
 import { indexFromPm25 } from '..';
+
+const hp = (indices: number[]): HourPoint[] =>
+  indices.map((index, i) => ({ at: `h${i}`, pm25: index, index }));
 
 test('AC-1: buildHistory drops nulls, keeps negatives, caps 24, oldest→newest', () => {
   const pts = Array.from({ length: 30 }, (_, i) => ({
@@ -38,10 +47,19 @@ test('AC-2: historyBarOpacity ramps 0.55→1.0, count<=1 → 1.0', () => {
   expect(historyBarOpacity(1, 3)).toBeCloseTo(0.55 + 0.45 * 0.5, 10);
 });
 
-test('AC-3: barHeightPct clamps index/2 to [10,100]', () => {
-  expect(barHeightPct(0)).toBe(10);
-  expect(barHeightPct(20)).toBe(10);
-  expect(barHeightPct(40)).toBe(20);
-  expect(barHeightPct(200)).toBe(100);
-  expect(barHeightPct(300)).toBe(100);
+test('AC-3: barHeights normalizes the window to [floor,100], min→floor max→100', () => {
+  // A low, flat-looking real Kraków window still spreads across the track.
+  expect(barHeights(hp([8, 10, 12, 9]))).toEqual([22, 61, 100, 42]);
+  // Extremes map to the endpoints exactly.
+  const h = barHeights(hp([0, 50, 100]));
+  expect(h[0]).toBe(22);
+  expect(h[2]).toBe(100);
+  // Flat window (no variation) → neutral mid-height, never NaN.
+  expect(barHeights(hp([15, 15, 15]))).toEqual([60, 60, 60]);
+  // Empty → [].
+  expect(barHeights([])).toEqual([]);
+});
+
+test('AC-3: indexRange returns min/max index over the window', () => {
+  expect(indexRange(hp([8, 12, 9, 14, 10]))).toEqual({ min: 8, max: 14 });
 });

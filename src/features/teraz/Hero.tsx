@@ -38,11 +38,7 @@ export function Hero({
         {place.station} · {place.freshness}
       </Text>
       <NumberGlow color={scene.key}>
-        <Text
-          variant="index"
-          color={scene.key}
-          style={[styles.number, { textShadowColor: `${scene.key}88` }]}
-        >
+        <Text variant="index" color={scene.key} style={styles.number}>
           {value}
         </Text>
       </NumberGlow>
@@ -70,11 +66,7 @@ const styles = StyleSheet.create({
   wrap: { alignItems: 'center' },
   city: { marginTop: 8 },
   station: { marginTop: 4 },
-  number: {
-    marginTop: 24,
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 42,
-  },
+  number: { marginTop: 24 },
   caption: { marginTop: 2 },
   pm: { marginTop: 8 },
   advice: { marginTop: 12, maxWidth: 280, textAlign: 'center' },

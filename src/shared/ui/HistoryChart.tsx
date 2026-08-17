@@ -4,7 +4,8 @@ import { colors } from '../tokens';
 import { scene } from '../../core/scene';
 import {
   historyBarOpacity,
-  barHeightPct,
+  barHeights,
+  indexRange,
   type HourPoint,
 } from '../../core/air';
 
@@ -38,35 +39,51 @@ function Bar({
   point,
   index,
   count,
+  heightPct,
 }: {
   point: HourPoint;
   index: number;
   count: number;
+  heightPct: number;
 }) {
   return (
     <View
       testID={`bar-${index}`}
-      style={{
-        flex: 1,
-        height: `${barHeightPct(point.index)}%`,
-        backgroundColor: scene(point.index).key,
-        opacity: historyBarOpacity(index, count),
-        borderRadius: 3,
-      }}
+      style={[
+        styles.bar,
+        {
+          height: `${heightPct}%`,
+          backgroundColor: scene(point.index).key,
+          opacity: historyBarOpacity(index, count),
+        },
+      ]}
     />
   );
 }
 
 export function HistoryChart({ history }: { history: HourPoint[] }) {
+  const heights = barHeights(history);
+  const range = history.length > 0 ? indexRange(history) : null;
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <ClockIcon testID="chart-clock" />
         <Text style={styles.header}>OSTATNIE 24 GODZINY</Text>
+        {range && (
+          <Text testID="chart-range" style={styles.range}>
+            CAQI {range.min}–{range.max}
+          </Text>
+        )}
       </View>
       <View style={styles.bars}>
         {history.map((point, i) => (
-          <Bar key={point.at} point={point} index={i} count={history.length} />
+          <Bar
+            key={point.at}
+            point={point}
+            index={i}
+            count={history.length}
+            heightPct={heights[i]}
+          />
         ))}
       </View>
       <View style={styles.axis}>
@@ -100,6 +117,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 1.4,
+  },
+  range: {
+    marginLeft: 'auto',
+    color: colors.text.faint,
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 0.4,
+    fontVariant: ['tabular-nums'],
+  },
+  bar: {
+    flex: 1,
+    borderRadius: 3,
   },
   bars: {
     flexDirection: 'row',
