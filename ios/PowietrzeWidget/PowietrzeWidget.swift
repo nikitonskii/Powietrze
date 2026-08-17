@@ -4,7 +4,7 @@
 import WidgetKit
 import SwiftUI
 
-private let kAppGroup = "group.org.reactjs.native.example.Powietrze"
+private let kAppGroup = "group.com.powietrze"
 private let kSnapshotKey = "widgetSnapshot"
 private let kSchemaVersion = 1
 

@@ -8,7 +8,7 @@ import WidgetKit
 // resolves it. Generic: it knows nothing about CAQI / the app's WidgetSnapshot shape.
 @objc(WidgetSync)
 final class WidgetSync: NSObject {
-  private static let suiteName = "group.org.reactjs.native.example.Powietrze"
+  private static let suiteName = "group.com.powietrze"
   private static let snapshotKey = "widgetSnapshot"
 
   @objc(writeSnapshot:)
