@@ -14,6 +14,7 @@ import {
 // A FIXED id so re-scheduling REPLACES rather than duplicating the daily notif.
 const MORNING_ID = 'powietrze-morning';
 const MORNING_CHANNEL = 'powietrze-morning';
+const SMOG_CHANNEL = 'powietrze-smog';
 
 // The @notifee implementation of the pure `Notifier` seam. `now` is injectable
 // for tests (defaults to the wall clock). This is the ONLY module that imports
@@ -58,6 +59,21 @@ export function createNotifeeNotifier(
 
     async cancelMorning() {
       await notifee.cancelTriggerNotification(MORNING_ID);
+    },
+
+    // `index` is available for future richer copy; the body is fixed to the
+    // approved design string for now (design/README.md:74).
+    async notifySmog(_index: number) {
+      await notifee.createChannel({
+        id: SMOG_CHANNEL,
+        name: 'Alert smogowy',
+        importance: AndroidImportance.DEFAULT,
+      });
+      await notifee.displayNotification({
+        title: 'Alert smogowy',
+        body: 'Ogranicz długie i intensywne aktywności na zewnątrz.',
+        android: { channelId: SMOG_CHANNEL },
+      });
     },
   };
 }

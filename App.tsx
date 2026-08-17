@@ -23,7 +23,9 @@ import {
 } from './src/shared/place';
 import { SettingsProvider } from './src/shared/settings';
 import { NotificationsProvider } from './src/shared/notifications';
+import { SmogAlertProvider } from './src/shared/alert';
 import { WidgetSyncProvider } from './src/shared/widget';
+import { RefreshProvider } from './src/shared/refresh';
 import { AppNavigator } from './src/app/AppNavigator';
 
 // Data-layer instances built once and injected (features never call data directly).
@@ -50,24 +52,28 @@ function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StationsProvider stations={stations}>
-        <PlaceSourceProvider sourceForPlace={sourceForPlace}>
-          <FavoritesProvider store={favoritesStore}>
-            <SettingsProvider store={settingsStore}>
-              <NotificationsProvider notifier={notifier}>
-                <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
-                  <WidgetSyncProvider sync={widgetSync}>
-                    <SafeAreaProvider>
-                      <StatusBar barStyle="light-content" />
-                      <AppNavigator />
-                    </SafeAreaProvider>
-                  </WidgetSyncProvider>
-                </ActivePlaceProvider>
-              </NotificationsProvider>
-            </SettingsProvider>
-          </FavoritesProvider>
-        </PlaceSourceProvider>
-      </StationsProvider>
+      <RefreshProvider>
+        <StationsProvider stations={stations}>
+          <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+            <FavoritesProvider store={favoritesStore}>
+              <SettingsProvider store={settingsStore}>
+                <NotificationsProvider notifier={notifier}>
+                  <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
+                    <SmogAlertProvider notifier={notifier}>
+                      <WidgetSyncProvider sync={widgetSync}>
+                        <SafeAreaProvider>
+                          <StatusBar barStyle="light-content" />
+                          <AppNavigator />
+                        </SafeAreaProvider>
+                      </WidgetSyncProvider>
+                    </SmogAlertProvider>
+                  </ActivePlaceProvider>
+                </NotificationsProvider>
+              </SettingsProvider>
+            </FavoritesProvider>
+          </PlaceSourceProvider>
+        </StationsProvider>
+      </RefreshProvider>
     </GestureHandlerRootView>
   );
 }

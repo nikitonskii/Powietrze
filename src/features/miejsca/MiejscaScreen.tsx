@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import {
   searchStations,
@@ -11,6 +11,7 @@ import { colors, spacing } from '../../shared/tokens';
 import { Text } from '../../shared/ui/Text';
 import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
 import { useActivePlace, useFavorites, useStations } from '../../shared/place';
+import { useRefresh } from '../../shared/refresh';
 import { DraggableFavorites } from './DraggableFavorites';
 import { PlaceRow } from './PlaceRow';
 import { SaveButton } from './SaveButton';
@@ -23,6 +24,7 @@ export function MiejscaScreen() {
   const stations = useStations();
   const { favorites, remove, reorder } = useFavorites();
   const { setActive } = useActivePlace();
+  const { refresh, refreshing } = useRefresh();
   const navigation = useNavigation<{ navigate: (n: string) => void }>();
   const results = useMemo(
     () =>
@@ -40,6 +42,14 @@ export function MiejscaScreen() {
       testID="screen-miejsca"
       style={styles.screen}
       contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={refresh}
+          tintColor={colors.text.dim}
+          testID="refresh-control"
+        />
+      }
     >
       <Text variant="city" style={styles.header}>
         Miejsca

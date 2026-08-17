@@ -14,6 +14,7 @@ import {
   type ActivePlace,
 } from '../../core/places';
 import { useSettings } from '../settings';
+import { useRefresh } from '../refresh';
 import { usePlaceDetail } from './usePlaceDetail';
 import { usePlaceReading, type ReadingState } from './usePlaceReading';
 
@@ -36,6 +37,7 @@ export function ActivePlaceProvider({
   children: ReactNode;
 }) {
   const { settings } = useSettings();
+  const { settleActive } = useRefresh();
   const target = defaultStation
     ? defaultPlace(settings.loc, defaultStation)
     : LOCATION_PLACE;
@@ -46,6 +48,13 @@ export function ActivePlaceProvider({
   }, [settings.loc, defaultStation]);
   const state = usePlaceReading(active);
   const { detail } = usePlaceDetail(active);
+  // `state` gets a new reference every settle (ready or stale) — including the
+  // one triggered by a signal bump — so this clears `refreshing` once the
+  // active place's refetch completes. A harmless no-op when not refreshing
+  // (e.g. the initial mount / place-change settle).
+  useEffect(() => {
+    settleActive();
+  }, [state, settleActive]);
   const value = useMemo<ActivePlaceValue>(
     () => ({ active, setActive, detail, ...state }),
     [active, state, detail],

@@ -1,0 +1,211 @@
+### commits
+3addd0f feat(miejsca): show data age on rows (AC-4)
+
+### diff
+diff --git a/src/features/miejsca/PlaceRow.tsx b/src/features/miejsca/PlaceRow.tsx
+index 6cde8b0..2c63d62 100644
+--- a/src/features/miejsca/PlaceRow.tsx
++++ b/src/features/miejsca/PlaceRow.tsx
+@@ -1,14 +1,14 @@
+ import type { ReactNode } from 'react';
+ import { Pressable, StyleSheet, View } from 'react-native';
+ import type { ActivePlace } from '../../core/places';
+-import { displayValue } from '../../core/air';
++import { displayValue, formatFreshness } from '../../core/air';
+ import { scene, trendArrow } from '../../core/scene';
+ import { usePlaceReading } from '../../shared/place';
+ import { useSettings } from '../../shared/settings';
+ import { Text } from '../../shared/ui/Text';
+ import { colors, spacing } from '../../shared/tokens';
+ 
+ // One live place row: title/subtitle on the left; on the right the live index in the
+ // scene's key color, or a small dim "brak danych" when the station has no current
+ // reading. `trailing` is the right-most control (✕ for favorites, +/✓ for results).
+ export function PlaceRow({
+@@ -31,33 +31,38 @@ export function PlaceRow({
+   return (
+     <Pressable testID={testID} style={styles.row} onPress={onPress}>
+       <View style={styles.left}>
+         <Text variant="city" style={styles.title}>
+           {title}
+         </Text>
+         <Text variant="station" color={colors.text.dim}>
+           {subtitle}
+         </Text>
+         {reading ? (
+-          <View style={styles.trendLine}>
+-            <Text variant="station" color={colors.text.high}>
+-              {scene(reading.index).band}
++          <>
++            <View style={styles.trendLine}>
++              <Text variant="station" color={colors.text.high}>
++                {scene(reading.index).band}
++              </Text>
++              <Text
++                variant="station"
++                color={scene(reading.index).key}
++                style={styles.trend}
++                testID={`trend-${reading.index}`}
++              >
++                {trendArrow(reading.index)}
++              </Text>
++            </View>
++            <Text variant="station" color={colors.text.faint}>
++              {formatFreshness(reading.measuredAt, new Date())}
+             </Text>
+-            <Text
+-              variant="station"
+-              color={scene(reading.index).key}
+-              style={styles.trend}
+-              testID={`trend-${reading.index}`}
+-            >
+-              {trendArrow(reading.index)}
+-            </Text>
+-          </View>
++          </>
+         ) : null}
+       </View>
+       {reading ? (
+         <Text
+           variant="index"
+           color={scene(reading.index).key}
+           style={styles.index}
+         >
+           {displayValue(
+             reading.index,
+diff --git a/src/features/miejsca/__tests__/PlaceRow.test.tsx b/src/features/miejsca/__tests__/PlaceRow.test.tsx
+index 460eb14..1c92558 100644
+--- a/src/features/miejsca/__tests__/PlaceRow.test.tsx
++++ b/src/features/miejsca/__tests__/PlaceRow.test.tsx
+@@ -1,32 +1,34 @@
+ import {
+   render,
+   screen,
+   waitFor,
+   fireEvent,
+   act,
+ } from '@testing-library/react-native';
++import type { ReactNode } from 'react';
+ import { Text as RNText } from 'react-native';
+ import { PlaceRow } from '../PlaceRow';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../../../shared/place';
+ import { SettingsProvider } from '../../../shared/settings';
++import { RefreshProvider, useRefresh } from '../../../shared/refresh';
+ import {
+   DEFAULT_SETTINGS,
+   type Settings,
+   type SettingsStore,
+ } from '../../../core/settings';
+ import type { Station } from '../../../core/geo';
+ import type { Reading } from '../../../core/air';
+-import { displayValue } from '../../../core/air';
++import { displayValue, formatFreshness } from '../../../core/air';
+ import { scene, trendArrow } from '../../../core/scene';
+ import { colorOf } from '../../../shared/test/colorOf';
+ 
+ const w: Station = {
+   id: 530,
+   name: 'Warszawa, Al. Niepodległości',
+   city: 'Warszawa',
+   lat: 0,
+   lon: 0,
+ };
+@@ -128,10 +130,95 @@ test('AC-5: the big number honors settings.scale/precision, color stays scene(in
+     scale: 'µg/m³',
+     precision: 'Dokładna',
+   };
+   await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) }), {
+     settings,
+   });
+   const expected = displayValue(42, 43, 'µg/m³', 'Dokładna'); // '43.0'
+   const el = await screen.findByText(expected);
+   expect(colorOf(el)).toBe(scene(42).key);
+ });
++
++// Exposes a `refresh-btn` that calls useRefresh().refresh(), so a test can
++// trigger a refetch and drive `usePlaceReading` from 'ready' to 'stale'.
++function RefreshHarness({ children }: { children: ReactNode }) {
++  const { refresh } = useRefresh();
++  return (
++    <>
++      <RNText testID="refresh-btn" onPress={refresh}>
++        refresh
++      </RNText>
++      {children}
++    </>
++  );
++}
++
++describe('AC-4: row data age', () => {
++  const now = new Date('2026-08-11T22:00:00');
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(now);
++  });
++
++  afterEach(() => {
++    jest.useRealTimers();
++  });
++
++  test('AC-4: a ready row renders the reading age', async () => {
++    await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) }));
++    await screen.findByText('42');
++    expect(
++      screen.getByText(formatFreshness(reading.measuredAt, now)),
++    ).toBeTruthy();
++  });
++
++  test('AC-4: a stale row that still has a last reading also renders the age', async () => {
++    let calls = 0;
++    const sfp: SourceForPlace = () => ({
++      getCurrentReading: () => {
++        calls += 1;
++        // First fetch (mount) succeeds; the refresh-triggered refetch fails,
++        // flipping status to 'stale' while the hook keeps the last reading.
++        return calls === 1
++          ? Promise.resolve(reading)
++          : Promise.reject(new Error('down'));
++      },
++    });
++    await render(
++      <SettingsProvider store={settingsStore()}>
++        <RefreshProvider>
++          <PlaceSourceProvider sourceForPlace={sfp}>
++            <RefreshHarness>
++              <PlaceRow
++                place={{ kind: 'station', station: w }}
++                title="Warszawa"
++                subtitle="Al. Niepodległości"
++                onPress={() => {}}
++                testID="row-530"
++              />
++            </RefreshHarness>
++          </PlaceSourceProvider>
++        </RefreshProvider>
++      </SettingsProvider>,
++    );
++    await screen.findByText('42');
++    await fireEvent.press(screen.getByTestId('refresh-btn'));
++    // The refetch rejected (status → 'stale'), but the hook keeps the last
++    // reading, so the row still shows the index — plus the age line.
++    await waitFor(() => expect(calls).toBe(2));
++    expect(screen.getByText('42')).toBeTruthy();
++    expect(
++      screen.getByText(formatFreshness(reading.measuredAt, now)),
++    ).toBeTruthy();
++  });
++
++  test('AC-4: a row with no reading ("brak danych") renders no age line', async () => {
++    await wrap(() => ({
++      getCurrentReading: () => Promise.reject(new Error('down')),
++    }));
++    await screen.findByText('brak danych');
++    expect(
++      screen.queryByText(formatFreshness(reading.measuredAt, now)),
++    ).toBeNull();
++  });
++});

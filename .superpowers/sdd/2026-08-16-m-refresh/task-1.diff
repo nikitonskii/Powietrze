@@ -1,0 +1,186 @@
+### commits
+e0ee223 feat(refresh): RefreshProvider — global signal + refreshing lifecycle (AC-1)
+
+### diff
+diff --git a/src/shared/refresh/__tests__/RefreshProvider.test.tsx b/src/shared/refresh/__tests__/RefreshProvider.test.tsx
+new file mode 100644
+index 0000000..e12b84e
+--- /dev/null
++++ b/src/shared/refresh/__tests__/RefreshProvider.test.tsx
+@@ -0,0 +1,102 @@
++import { render, screen, fireEvent, act } from '@testing-library/react-native';
++import { Text } from 'react-native';
++import { RefreshProvider, useRefreshSignal, useRefresh } from '../index';
++
++beforeEach(() => jest.useFakeTimers());
++afterEach(() => jest.useRealTimers());
++
++function Harness() {
++  const signal = useRefreshSignal();
++  const { refresh, refreshing, settleActive } = useRefresh();
++  return (
++    <>
++      <Text testID="signal">{signal}</Text>
++      <Text testID="refreshing">{refreshing ? 'true' : 'false'}</Text>
++      <Text testID="refresh-btn" onPress={refresh}>
++        refresh
++      </Text>
++      <Text testID="settle-btn" onPress={settleActive}>
++        settle
++      </Text>
++    </>
++  );
++}
++
++test('AC-1: refresh() bumps the signal by 1 and sets refreshing true', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  expect(screen.getByTestId('signal').props.children).toBe(0);
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++
++  expect(screen.getByTestId('signal').props.children).toBe(1);
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++});
++
++test('AC-1: settleActive() sets refreshing false and cancels the safety timeout', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await fireEvent.press(screen.getByTestId('settle-btn'));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  // timeout was cancelled by settleActive — advancing past 8s must not throw
++  // and refreshing must remain false (nothing left to fire).
++  await act(() => jest.advanceTimersByTime(8000));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++});
++
++test('AC-1: the 8s safety timeout auto-clears refreshing when settleActive never comes', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await act(() => jest.advanceTimersByTime(7999));
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await act(() => jest.advanceTimersByTime(1));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++});
++
++test('AC-1: a second refresh() while refreshing is a no-op (signal unchanged)', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('signal').props.children).toBe(1);
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('signal').props.children).toBe(1); // debounced
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++});
++
++test('AC-1: unwrapped (no RefreshProvider) — signal is 0, refresh/settleActive are safe no-ops', async () => {
++  await render(<Harness />);
++  expect(screen.getByTestId('signal').props.children).toBe(0);
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  await expect(
++    fireEvent.press(screen.getByTestId('refresh-btn')),
++  ).resolves.not.toThrow();
++  await expect(
++    fireEvent.press(screen.getByTestId('settle-btn')),
++  ).resolves.not.toThrow();
++
++  expect(screen.getByTestId('signal').props.children).toBe(0);
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++});
+diff --git a/src/shared/refresh/index.tsx b/src/shared/refresh/index.tsx
+new file mode 100644
+index 0000000..9fb8f31
+--- /dev/null
++++ b/src/shared/refresh/index.tsx
+@@ -0,0 +1,68 @@
++import {
++  createContext,
++  useCallback,
++  useContext,
++  useMemo,
++  useRef,
++  useState,
++  type ReactNode,
++} from 'react';
++
++const SAFETY_MS = 8000;
++
++type RefreshApi = {
++  refresh: () => void;
++  refreshing: boolean;
++  settleActive: () => void;
++};
++const SignalCtx = createContext<number>(0);
++const ApiCtx = createContext<RefreshApi>({
++  refresh: () => {},
++  refreshing: false,
++  settleActive: () => {},
++});
++
++export function RefreshProvider({ children }: { children: ReactNode }) {
++  const [signal, setSignal] = useState(0);
++  const [refreshing, setRefreshing] = useState(false);
++  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const refreshingRef = useRef(false);
++
++  const clear = useCallback(() => {
++    if (timer.current) {
++      clearTimeout(timer.current);
++      timer.current = null;
++    }
++    refreshingRef.current = false;
++    setRefreshing(false);
++  }, []);
++
++  const refresh = useCallback(() => {
++    if (refreshingRef.current) return; // debounce while refreshing
++    refreshingRef.current = true;
++    setRefreshing(true);
++    setSignal(s => s + 1);
++    timer.current = setTimeout(clear, SAFETY_MS); // safety: never stick
++  }, [clear]);
++
++  const settleActive = useCallback(() => {
++    if (refreshingRef.current) clear();
++  }, [clear]);
++
++  const api = useMemo<RefreshApi>(
++    () => ({ refresh, refreshing, settleActive }),
++    [refresh, refreshing, settleActive],
++  );
++  return (
++    <SignalCtx.Provider value={signal}>
++      <ApiCtx.Provider value={api}>{children}</ApiCtx.Provider>
++    </SignalCtx.Provider>
++  );
++}
++
++export function useRefreshSignal(): number {
++  return useContext(SignalCtx);
++}
++export function useRefresh(): RefreshApi {
++  return useContext(ApiCtx);
++}

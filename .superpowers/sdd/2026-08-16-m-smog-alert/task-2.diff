@@ -1,0 +1,170 @@
+### commits
+ab59b43 feat(notifications): Notifier.notifySmog via @notifee displayNotification (AC-3)
+
+### diff
+diff --git a/jest.setup.js b/jest.setup.js
+index 49da163..7daef32 100644
+--- a/jest.setup.js
++++ b/jest.setup.js
+@@ -73,20 +73,21 @@ jest.mock('react-native-safe-area-context', () => ({
+ // The default export is the notifee client (methods the adapter calls); the enums
+ // are named exports. jest.fn()s let AC-3 assert exact trigger config; the adapter's
+ // own tests set return values (requestPermission authorization status) per case.
+ jest.mock('@notifee/react-native', () => ({
+   __esModule: true,
+   default: {
+     requestPermission: jest.fn(async () => ({ authorizationStatus: 1 })),
+     createChannel: jest.fn(async () => 'default'),
+     createTriggerNotification: jest.fn(async () => undefined),
+     cancelTriggerNotification: jest.fn(async () => undefined),
++    displayNotification: jest.fn(async () => undefined),
+   },
+   AuthorizationStatus: {
+     NOT_DETERMINED: -1,
+     DENIED: 0,
+     AUTHORIZED: 1,
+     PROVISIONAL: 2,
+   },
+   TriggerType: { TIMESTAMP: 0, INTERVAL: 1 },
+   RepeatFrequency: { NONE: -1, HOURLY: 0, DAILY: 1, WEEKLY: 2 },
+   AndroidImportance: { DEFAULT: 3, HIGH: 4 },
+diff --git a/src/core/notifications/index.ts b/src/core/notifications/index.ts
+index 35eed00..63c45d9 100644
+--- a/src/core/notifications/index.ts
++++ b/src/core/notifications/index.ts
+@@ -1,18 +1,19 @@
+ export const MORNING_TIME = '07:30';
+ 
+ // The seam features/settings use; the @notifee adapter (data layer) implements it,
+ // a fake in tests. Never import @notifee outside that adapter.
+ export interface Notifier {
+   requestPermission(): Promise<boolean>;
+   scheduleMorning(time?: string): Promise<void>;
+   cancelMorning(): Promise<void>;
++  notifySmog(index: number): Promise<void>;
+ }
+ 
+ // Epoch-ms of the NEXT occurrence of HH:MM in LOCAL wall-clock time: today if
+ // `now` is strictly before it, else tomorrow (a notifee TimestampTrigger needs a
+ // future time). `now` is injected (pure/testable).
+ export function nextMorningTimestamp(
+   now: Date,
+   time: string = MORNING_TIME,
+ ): number {
+   const [h, m] = time.split(':').map(Number);
+diff --git a/src/data/notifications/__tests__/notifier.test.ts b/src/data/notifications/__tests__/notifier.test.ts
+index fddbbdb..c664320 100644
+--- a/src/data/notifications/__tests__/notifier.test.ts
++++ b/src/data/notifications/__tests__/notifier.test.ts
+@@ -62,11 +62,31 @@ describe('createNotifeeNotifier (AC-3)', () => {
+   });
+ 
+   test('AC-3: requestPermission maps DENIED → false', async () => {
+     (notifee.requestPermission as jest.Mock).mockResolvedValueOnce({
+       authorizationStatus: AuthorizationStatus.DENIED,
+     });
+     await expect(
+       createNotifeeNotifier(() => FIXED_NOW).requestPermission(),
+     ).resolves.toBe(false);
+   });
++
++  test('AC-3: notifySmog creates the smog channel then displays the approved copy', async () => {
++    await createNotifeeNotifier(() => FIXED_NOW).notifySmog(42);
++
++    expect(notifee.createChannel).toHaveBeenCalledTimes(1);
++    expect(notifee.createChannel).toHaveBeenCalledWith(
++      expect.objectContaining({ id: 'powietrze-smog' }),
++    );
++    expect(notifee.displayNotification).toHaveBeenCalledTimes(1);
++    const [notification] = (notifee.displayNotification as jest.Mock).mock
++      .calls[0];
++    expect(notification.body).toBe(
++      'Ogranicz długie i intensywne aktywności na zewnątrz.',
++    );
++    expect(notification.android.channelId).toBe('powietrze-smog');
++
++    // Other Notifier methods untouched by notifySmog.
++    expect(notifee.createTriggerNotification).not.toHaveBeenCalled();
++    expect(notifee.cancelTriggerNotification).not.toHaveBeenCalled();
++  });
+ });
+diff --git a/src/data/notifications/index.ts b/src/data/notifications/index.ts
+index dcfb66b..7669049 100644
+--- a/src/data/notifications/index.ts
++++ b/src/data/notifications/index.ts
+@@ -7,20 +7,21 @@ import notifee, {
+ } from '@notifee/react-native';
+ import {
+   MORNING_TIME,
+   nextMorningTimestamp,
+   type Notifier,
+ } from '../../core/notifications';
+ 
+ // A FIXED id so re-scheduling REPLACES rather than duplicating the daily notif.
+ const MORNING_ID = 'powietrze-morning';
+ const MORNING_CHANNEL = 'powietrze-morning';
++const SMOG_CHANNEL = 'powietrze-smog';
+ 
+ // The @notifee implementation of the pure `Notifier` seam. `now` is injectable
+ // for tests (defaults to the wall clock). This is the ONLY module that imports
+ // @notifee — features/settings use the `Notifier` interface. Content is generic
+ // (a local scheduled notif's body is fixed at schedule time — no live-data/city
+ // access here; that needs the deferred background fetch).
+ export function createNotifeeNotifier(
+   now: () => Date = () => new Date(),
+ ): Notifier {
+   return {
+@@ -52,12 +53,27 @@ export function createNotifeeNotifier(
+           body: 'Sprawdź dziś jakość powietrza',
+           android: { channelId: MORNING_CHANNEL },
+         },
+         trigger,
+       );
+     },
+ 
+     async cancelMorning() {
+       await notifee.cancelTriggerNotification(MORNING_ID);
+     },
++
++    // `index` is available for future richer copy; the body is fixed to the
++    // approved design string for now (design/README.md:74).
++    async notifySmog(_index: number) {
++      await notifee.createChannel({
++        id: SMOG_CHANNEL,
++        name: 'Alert smogowy',
++        importance: AndroidImportance.DEFAULT,
++      });
++      await notifee.displayNotification({
++        title: 'Alert smogowy',
++        body: 'Ogranicz długie i intensywne aktywności na zewnątrz.',
++        android: { channelId: SMOG_CHANNEL },
++      });
++    },
+   };
+ }
+diff --git a/src/shared/notifications/__tests__/NotificationsProvider.test.tsx b/src/shared/notifications/__tests__/NotificationsProvider.test.tsx
+index c42dff6..4c969dc 100644
+--- a/src/shared/notifications/__tests__/NotificationsProvider.test.tsx
++++ b/src/shared/notifications/__tests__/NotificationsProvider.test.tsx
+@@ -21,20 +21,21 @@ const fakeNotifier = (granted = true): Notifier & { calls: string[] } => {
+     requestPermission: async () => {
+       calls.push('req');
+       return granted;
+     },
+     scheduleMorning: async () => {
+       calls.push('sched');
+     },
+     cancelMorning: async () => {
+       calls.push('cancel');
+     },
++    notifySmog: jest.fn(),
+   };
+ };
+ 
+ const wrap = (n: Notifier, s: Settings) =>
+   render(
+     <SettingsProvider store={store(s)}>
+       <NotificationsProvider notifier={n}>
+         <Text>x</Text>
+       </NotificationsProvider>
+     </SettingsProvider>,

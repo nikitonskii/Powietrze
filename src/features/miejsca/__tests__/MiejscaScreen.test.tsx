@@ -3,7 +3,9 @@ import {
   screen,
   waitFor,
   fireEvent,
+  act,
 } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 import realStations from '../../../core/geo/__fixtures__/stations.json';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MiejscaScreen } from '../MiejscaScreen';
@@ -14,6 +16,7 @@ import {
   StationsProvider,
   type SourceForPlace,
 } from '../../../shared/place';
+import { RefreshProvider } from '../../../shared/refresh';
 import { SettingsProvider } from '../../../shared/settings';
 import { DEFAULT_SETTINGS, type SettingsStore } from '../../../core/settings';
 import type { FavoritesStore } from '../../../core/places';
@@ -46,6 +49,18 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
+// The RN jest preset's RefreshControl mock stores the last-mounted instance on
+// `RefreshControl.latestRef`, exposing the exact props the screen passed —
+// used below to assert the pull-to-refresh wiring without any local mock.
+const refreshControlProps = () =>
+  (
+    RefreshControl as unknown as {
+      latestRef: {
+        props: { testID?: string; refreshing: boolean; onRefresh: () => void };
+      };
+    }
+  ).latestRef.props;
+
 const w = S.find(s => s.id === 530)!; // Warszawa
 const g = S.find(s => s.id === 706)!; // Gdańsk
 
@@ -65,25 +80,53 @@ const settingsStore: SettingsStore = {
   load: async () => DEFAULT_SETTINGS,
   save: async () => {},
 };
-const renderScreen = (store: FavoritesStore) =>
+const renderScreen = (
+  store: FavoritesStore,
+  sourceForPlace: SourceForPlace = sfp,
+) =>
   render(
-    <SettingsProvider store={settingsStore}>
-      <StationsProvider stations={S}>
-        <PlaceSourceProvider sourceForPlace={sfp}>
-          <FavoritesProvider store={store}>
-            <ActivePlaceProvider>
-              <MiejscaScreen />
-            </ActivePlaceProvider>
-          </FavoritesProvider>
-        </PlaceSourceProvider>
-      </StationsProvider>
-    </SettingsProvider>,
+    <RefreshProvider>
+      <SettingsProvider store={settingsStore}>
+        <StationsProvider stations={S}>
+          <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+            <FavoritesProvider store={store}>
+              <ActivePlaceProvider>
+                <MiejscaScreen />
+              </ActivePlaceProvider>
+            </FavoritesProvider>
+          </PlaceSourceProvider>
+        </StationsProvider>
+      </SettingsProvider>
+    </RefreshProvider>,
   );
 
 test('AC 006-8: default shows the pinned location row and the empty hint', async () => {
   await renderScreen(makeStore());
   expect(screen.getByText('Twoja lokalizacja')).toBeTruthy();
   expect(screen.getByText('Wyszukaj i dodaj miejsce')).toBeTruthy();
+});
+
+test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
+  let calls = 0;
+  const countingSfp: SourceForPlace = () => ({
+    getCurrentReading: () => {
+      calls++;
+      return Promise.resolve(anyReading);
+    },
+  });
+  await renderScreen(makeStore(), countingSfp);
+  // Initial mount: the pinned location row AND ActivePlaceProvider's active
+  // reading both fetch the location place once.
+  await waitFor(() => expect(calls).toBe(2));
+  expect(refreshControlProps().testID).toBe('refresh-control');
+  expect(refreshControlProps().refreshing).toBe(false);
+
+  // Pull-to-refresh: onRefresh is useRefresh().refresh — invoking it (as a pull
+  // gesture would) re-triggers both fetches (proves the wiring).
+  await act(async () => {
+    refreshControlProps().onRefresh();
+  });
+  expect(calls).toBe(4);
 });
 
 test('AC 006-9: search filters, + adds a favorite (persists), tap previews + navigates', async () => {

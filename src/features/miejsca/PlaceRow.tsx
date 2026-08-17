@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ActivePlace } from '../../core/places';
-import { displayValue } from '../../core/air';
+import { displayValue, formatFreshness } from '../../core/air';
 import { scene, trendArrow } from '../../core/scene';
 import { usePlaceReading } from '../../shared/place';
 import { useSettings } from '../../shared/settings';
@@ -38,19 +38,24 @@ export function PlaceRow({
           {subtitle}
         </Text>
         {reading ? (
-          <View style={styles.trendLine}>
-            <Text variant="station" color={colors.text.high}>
-              {scene(reading.index).band}
+          <>
+            <View style={styles.trendLine}>
+              <Text variant="station" color={colors.text.high}>
+                {scene(reading.index).band}
+              </Text>
+              <Text
+                variant="station"
+                color={scene(reading.index).key}
+                style={styles.trend}
+                testID={`trend-${reading.index}`}
+              >
+                {trendArrow(reading.index)}
+              </Text>
+            </View>
+            <Text variant="station" color={colors.text.faint}>
+              {formatFreshness(reading.measuredAt, new Date())}
             </Text>
-            <Text
-              variant="station"
-              color={scene(reading.index).key}
-              style={styles.trend}
-              testID={`trend-${reading.index}`}
-            >
-              {trendArrow(reading.index)}
-            </Text>
-          </View>
+          </>
         ) : null}
       </View>
       {reading ? (

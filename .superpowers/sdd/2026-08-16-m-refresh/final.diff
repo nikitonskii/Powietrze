@@ -1,0 +1,1626 @@
+### commits
+3addd0f feat(miejsca): show data age on rows (AC-4)
+458c583 test(refresh): assert RefreshControl via preset's latestRef seam (review should-fix)
+0c8d22b feat(refresh): pull-to-refresh control on Teraz + Miejsca
+33706fc feat(refresh): fetch hooks refetch on signal; ActivePlace clears refreshing (AC-2, AC-3)
+6763926 chore(refresh): clear safety timeout on RefreshProvider unmount (review nit)
+e0ee223 feat(refresh): RefreshProvider — global signal + refreshing lifecycle (AC-1)
+1201efe docs: implementation plan for m-refresh (pull-to-refresh + freshness)
+2250012 docs: rework spec 018 to active-place-tied refresh (critic REWORK resolved)
+a6d0974 docs: spec 018 pull-to-refresh + freshness (Teraz/Miejsca)
+
+### stat
+ App.tsx                                            |  39 ++---
+ docs/specs/018-refresh.md                          | 133 +++++++++++++++
+ docs/superpowers/plans/2026-08-16-m-refresh.md     | 180 +++++++++++++++++++++
+ src/features/miejsca/MiejscaScreen.tsx             |  12 +-
+ src/features/miejsca/PlaceRow.tsx                  |  31 ++--
+ .../miejsca/__tests__/MiejscaScreen.test.tsx       |  67 ++++++--
+ src/features/miejsca/__tests__/PlaceRow.test.tsx   |  89 +++++++++-
+ src/features/teraz/TerazScreen.tsx                 |  16 +-
+ src/features/teraz/__tests__/TerazScreen.test.tsx  |  57 ++++++-
+ src/shared/place/ActivePlaceContext.tsx            |   9 ++
+ .../place/__tests__/ActivePlaceContext.test.tsx    |  54 +++++++
+ src/shared/place/__tests__/usePlaceDetail.test.tsx |  64 +++++++-
+ .../place/__tests__/usePlaceReading.test.tsx       |  67 +++++++-
+ src/shared/place/usePlaceDetail.ts                 |   4 +-
+ src/shared/place/usePlaceReading.ts                |   4 +-
+ .../refresh/__tests__/RefreshProvider.test.tsx     | 102 ++++++++++++
+ src/shared/refresh/index.tsx                       |  77 +++++++++
+ 17 files changed, 945 insertions(+), 60 deletions(-)
+
+### diff
+diff --git a/App.tsx b/App.tsx
+index f33dca8..19f74a6 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -19,16 +19,17 @@ import {
+   PlaceSourceProvider,
+   StationsProvider,
+   FavoritesProvider,
+   ActivePlaceProvider,
+ } from './src/shared/place';
+ import { SettingsProvider } from './src/shared/settings';
+ import { NotificationsProvider } from './src/shared/notifications';
+ import { WidgetSyncProvider } from './src/shared/widget';
++import { RefreshProvider } from './src/shared/refresh';
+ import { AppNavigator } from './src/app/AppNavigator';
+ 
+ // Data-layer instances built once and injected (features never call data directly).
+ const nearest = createNearestStationSource(createDeviceGeolocation(), fetch);
+ const sourceForPlace = (p: ActivePlace) =>
+   p.kind === 'location' ? nearest : createStationSource(p.station, fetch);
+ const favoritesStore = createAsyncStorageFavoritesStore();
+ const settingsStore = createAsyncStorageSettingsStore();
+@@ -45,31 +46,33 @@ function App() {
+       .catch(() => {});
+     return () => {
+       on = false;
+     };
+   }, []);
+ 
+   return (
+     <GestureHandlerRootView style={{ flex: 1 }}>
+-      <StationsProvider stations={stations}>
+-        <PlaceSourceProvider sourceForPlace={sourceForPlace}>
+-          <FavoritesProvider store={favoritesStore}>
+-            <SettingsProvider store={settingsStore}>
+-              <NotificationsProvider notifier={notifier}>
+-                <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
+-                  <WidgetSyncProvider sync={widgetSync}>
+-                    <SafeAreaProvider>
+-                      <StatusBar barStyle="light-content" />
+-                      <AppNavigator />
+-                    </SafeAreaProvider>
+-                  </WidgetSyncProvider>
+-                </ActivePlaceProvider>
+-              </NotificationsProvider>
+-            </SettingsProvider>
+-          </FavoritesProvider>
+-        </PlaceSourceProvider>
+-      </StationsProvider>
++      <RefreshProvider>
++        <StationsProvider stations={stations}>
++          <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++            <FavoritesProvider store={favoritesStore}>
++              <SettingsProvider store={settingsStore}>
++                <NotificationsProvider notifier={notifier}>
++                  <ActivePlaceProvider defaultStation={KRAKOW_STATION}>
++                    <WidgetSyncProvider sync={widgetSync}>
++                      <SafeAreaProvider>
++                        <StatusBar barStyle="light-content" />
++                        <AppNavigator />
++                      </SafeAreaProvider>
++                    </WidgetSyncProvider>
++                  </ActivePlaceProvider>
++                </NotificationsProvider>
++              </SettingsProvider>
++            </FavoritesProvider>
++          </PlaceSourceProvider>
++        </StationsProvider>
++      </RefreshProvider>
+     </GestureHandlerRootView>
+   );
+ }
+ 
+ export default App;
+diff --git a/docs/specs/018-refresh.md b/docs/specs/018-refresh.md
+new file mode 100644
+index 0000000..91fa493
+--- /dev/null
++++ b/docs/specs/018-refresh.md
+@@ -0,0 +1,133 @@
++# Spec 018: Pull-to-refresh + freshness on Teraz/Miejsca
++
++**Status:** draft
++**Milestone:** M-refresh · **No new dependency** (RN `RefreshControl` is on board)
++**Sources:** existing `usePlaceReading`/`usePlaceDetail` fetch model; `formatFreshness` (`src/core/air`); spec 004 (refresh deferred there)
++**Critic:** REWORK → resolved. Adopted the active-place-tied lifecycle (dropped the in-flight counter — B1 underflow); `useRefreshSignal()` defaults to `0` unwrapped so no existing test breaks (B2). S1–S5 folded. `.superpowers/sdd/critic-018.md`.
++
++## Goal
++Let the user pull down on Teraz and Miejsca to re-fetch live GIOŚ data, and show
++the data's age ("1 godz temu") on Miejsca rows too (Teraz already shows it). A
++refresh re-publishes the widget snapshot **when the data actually changes** (via the
++existing `WidgetSyncProvider`, which republishes on identity change) — no extra
++widget wiring.
++
++## Design
++
++### A global refresh signal (`src/shared/refresh/`)
++```ts
++export function RefreshProvider(props: { children: React.ReactNode }): JSX.Element;
++// The fetch hooks consume ONLY this. Returns 0 when no provider is mounted, so
++// usePlaceReading/usePlaceDetail stay unit-testable standalone and a value-stable
++// 0 never refires their effect (no existing test needs a RefreshProvider). (B2)
++export function useRefreshSignal(): number;
++// The screens (+ ActivePlaceProvider) consume this.
++export function useRefresh(): {
++  refresh: () => void;          // bump signal + start the spinner (debounced)
++  refreshing: boolean;
++  settleActive: () => void;     // ActivePlaceProvider calls this when the active reading settles
++};
++```
++Lifecycle (no counter — the crux, per critic Q1):
++- `refresh()`: if `refreshing` already true → **no-op** (debounce, Q3). Else bump
++  `signal` (a number) by 1, set `refreshing = true`, and arm an **8s safety timeout**
++  that force-sets `refreshing = false` (the only way it can stick).
++- `settleActive()`: if `refreshing`, set it false and cancel the timeout. Clearing
++  when not refreshing is a harmless no-op (so the initial mount / place-change
++  settle, which happens while `refreshing` is false, does nothing).
++- `refreshing` is thus tied to the ACTIVE place's refetch (accurate on Teraz); the
++  Miejsca rows refetch purely via the `signal` dep and their individual completion
++  is not tracked — the 8s timeout bounds the worst case (accepted; see AC-6).
++- `settleActive`/`refresh` are `useCallback`-stable (ref-based state), safe as effect deps.
++
++### Fetch hooks (`src/shared/place/usePlaceReading.ts`, `usePlaceDetail.ts`)
++- Add `const signal = useRefreshSignal();` and include `signal` in the effect deps
++  (`[sourceForPlace, placeKey, signal]`). A bump re-runs the effect → refetch. That
++  is the ONLY change — **no `begin/end`, no coupling to `useRefresh`** (kills B2).
++- The existing `eslint-disable-next-line react-hooks/exhaustive-deps` stays as-is
++  (it still intentionally excludes only the `place` object identity; `signal` is now
++  listed). (S1)
++- Behavior otherwise unchanged: success → `ready`; rejection → `stale` keeping the
++  last reading; detail rejection → `undefined`.
++
++### `ActivePlaceProvider` (`src/shared/place/ActivePlaceContext.tsx`)
++- Consume `useRefresh()`; in an effect keyed on the active `state` (the `ReadingState`
++  object, which gets a new reference every settle — ready or stale), call
++  `settleActive()`. This clears `refreshing` when the active place's (signal-triggered)
++  refetch completes. Mount/place-change settles are harmless no-ops (refreshing false).
++- Requires `RefreshProvider` ABOVE `ActivePlaceProvider` (see App.tsx).
++
++### Screens
++- **Teraz** (`TerazScreen`, a `ScrollView`): `refreshControl={<RefreshControl
++  refreshing={refreshing} onRefresh={refresh} tintColor={…} />}` from `useRefresh()`,
++  dark-theme tint.
++- **Miejsca** (`MiejscaScreen`, a `ScrollView` — confirmed, not FlatList): same
++  `RefreshControl` on the outer ScrollView.
++- **`App.tsx`**: mount `<RefreshProvider>` ABOVE `PlaceSourceProvider` AND
++  `ActivePlaceProvider` and the navigator, so the active place and all rows share one signal.
++
++### Miejsca row freshness (`src/features/miejsca/PlaceRow.tsx`)
++- When a `reading` exists (including a `stale` row that still has a last reading),
++  render the data age via `formatFreshness(reading.measuredAt, new Date())` (reuse the
++  core helper the hero uses), subtle/dim, consistent with the row subtitle. A row with
++  no reading (`brak danych`) renders no age line. (Q4: a stale row's age is honest — it
++  IS that old — so it's shown, not hidden.)
++
++### Widget (verify only — no new work)
++A refetch that yields changed data → new snapshot identity → `WidgetSyncProvider`
++republishes (spec 017). An identical re-fetch (same GIOŚ hour) → same identity → no
++republish (correct). Confirm no extra wiring.
++
++## Behavior — Acceptance Criteria
++
++### Shared — refresh provider + hooks
++- **AC-1** — `useRefresh()`: `refresh()` increments `useRefreshSignal()` by 1 and sets
++  `refreshing` true; `settleActive()` sets it false and cancels the timeout; the 8s
++  safety timeout force-clears `refreshing` if `settleActive` never comes; a second
++  `refresh()` while `refreshing` is a **no-op** (signal unchanged — debounce). (Fake timers.)
++- **AC-2** — `usePlaceReading` re-fetches when the signal bumps: fake `AirQualitySource`
++  counting `getCurrentReading` — one mount = 1 call; wrapping in `RefreshProvider` and
++  calling `refresh()` = 2 calls; an unrelated re-render (signal unchanged) = still 2.
++  Same for `usePlaceDetail`/`getDetail`. **Unwrapped (no RefreshProvider) → `useRefreshSignal()`
++  is `0`, hook still works, no refetch** (guards B2 — the existing suites stay green).
++- **AC-3** — observable `refreshing` (NOT internals): false throughout the initial pending
++  load; flips true only after `refresh()`; back to false once the active reading settles
++  (drive a fake active reading to resolve, call `settleActive`) or the timeout fires.
++- **AC-3b** — provider order: `ActivePlaceProvider` clears `refreshing` on active-reading
++  settle only when nested under `RefreshProvider` (a small integration test asserting a
++  refresh started, then the active fetch resolving, flips `refreshing` false).
++
++### Feature — Miejsca row age
++- **AC-4** — `PlaceRow` with a `ready` reading renders `formatFreshness(reading.measuredAt, now)`
++  (freeze `now`); a `stale` row that still has a `reading` ALSO renders the age; a row with no
++  reading (`brak danych`) renders no age line.
++
++### Manual (sim — journal + evidence/18)
++- **AC-5** — Pull down on Teraz → spinner shows, data re-fetches; if GIOŚ has a newer hour the
++  number/age update, else the age correctly stays. Screenshot → evidence/18.
++- **AC-6** — Pull down on Miejsca → all rows re-fetch and show their age. **Confirm the outer
++  `RefreshControl` coexists with the inner Reanimated drag-reorder (`activateAfterLongPress`) and
++  swipe-to-delete without conflict.** Note: a refresh re-runs the `location` place fetch on both
++  Teraz and the Miejsca location row → geolocation runs again; note latency/permission behavior. (S5)
++
++> **Note (not an AC):** once the widget native gate lands, a Teraz refresh that changes the data
++> republishes the widget snapshot — verified under spec 017's manual ACs, not here. (S3)
++
++## Non-goals (YAGNI)
++- Auto/periodic background refresh (needs BGTask; deferred). · App-fetch-time label (kept the
++  honest data-age only). · Per-row independent spinners on Miejsca (one list-level control).
++
++## Verification
++- **AC-1** `src/shared/refresh/__tests__/` (fake timers). **AC-2/AC-3/AC-3b**
++  `src/shared/place/__tests__/` + refresh tests (fake source call-counts; the unwrapped-0 case
++  guards the existing suites). **AC-4** `src/features/miejsca/__tests__/PlaceRow` (frozen now, ready + stale + brak-danych).
++- **AC-5..6** manual on the sim, journal `docs/harness/18-refresh.md` + evidence/18.
++
++## Resolved (critic)
++- **B1** counter dropped → no underflow; `refreshing` is a plain boolean tied to the active
++  settle + 8s timeout. **B2** `useRefreshSignal()` defaults to `0` unwrapped + no begin/end in the
++  hooks → the 8 existing hook/screen suites need no migration. **S1** eslint-disable unchanged
++  (only a value-stable `signal` added). **S2** AC-3 restated on observable `refreshing`. **S3**
++  AC-7 demoted to a note. **S4** goal reworded ("when the data changes"). **S5** AC-6 covers the
++  gesture coexistence + double-geolocation note. Q3 debounce (AC-1), Q4 stale-age shown (AC-4),
++  Miejsca pinned as ScrollView.
+diff --git a/docs/superpowers/plans/2026-08-16-m-refresh.md b/docs/superpowers/plans/2026-08-16-m-refresh.md
+new file mode 100644
+index 0000000..7a5eb4b
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-16-m-refresh.md
+@@ -0,0 +1,180 @@
++# Pull-to-refresh + freshness Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use checkbox syntax.
++
++**Goal:** Pull down on Teraz/Miejsca to re-fetch live GIOŚ data (refetching the active place + all rows via one global signal), and show the data's age on Miejsca rows.
++
++**Architecture:** A `RefreshProvider` holds a `signal` (bumped on pull) + a `refreshing` boolean (tied to the active place's refetch settle + an 8s safety timeout). `usePlaceReading`/`usePlaceDetail` add the signal to their effect deps (a bump refetches). `useRefreshSignal()` returns `0` when no provider is mounted, so the existing hook/screen suites need no changes. `RefreshControl` on both screens.
++
++**Tech Stack:** TS strict, RN 0.86, Jest + @testing-library/react-native (render/renderHook ASYNC — await). No new dependency (`RefreshControl` is on board).
++
++## Global Constraints
++- No new dependency. · TS strict, no `any`. · `src/core` pure, 100% coverage. · files ≤200 / functions ≤40. · imports one-way (features→shared→core; features never import data). · behavior tests cite AC IDs.
++- Spec `docs/specs/018-refresh.md` is authoritative. Model: active-place-tied `refreshing` + 8s timeout + debounce; NO in-flight counter. `useRefreshSignal()` defaults to `0` unwrapped.
++
++---
++
++### Task 1: `shared/refresh` — RefreshProvider + hooks
++
++**Files:**
++- Create: `src/shared/refresh/index.tsx`
++- Test: `src/shared/refresh/__tests__/RefreshProvider.test.tsx`
++
++**Interfaces:**
++- Produces: `RefreshProvider({children})`; `useRefreshSignal(): number` (0 when unwrapped); `useRefresh(): { refresh(): void; refreshing: boolean; settleActive(): void }`.
++
++- [ ] **Step 1: Write failing test (AC-1)** — with fake timers (`jest.useFakeTimers()`):
++  - `refresh()` increments the value returned by `useRefreshSignal()` by 1 and flips `refreshing` true.
++  - `settleActive()` sets `refreshing` false and cancels the timeout.
++  - if `settleActive` never comes, advancing 8s (`jest.advanceTimersByTime(8000)`) flips `refreshing` false (safety).
++  - a second `refresh()` while `refreshing` is a no-op (signal unchanged — debounce).
++  - `useRefreshSignal()` / `useRefresh()` used with NO `RefreshProvider` → signal `0`, `refresh`/`settleActive` are safe no-ops (render a component using them outside the provider; no throw).
++
++  Drive it via a tiny harness component that renders `useRefreshSignal()` + buttons calling `useRefresh()` actions (use `fireEvent.press` + `screen.getByText` for the current signal), awaiting the async `render`.
++
++- [ ] **Step 2: Run, verify fail** — `npx jest src/shared/refresh`.
++- [ ] **Step 3: Implement** `src/shared/refresh/index.tsx`:
++
++```tsx
++import {
++  createContext, useCallback, useContext, useMemo, useRef, useState,
++  type ReactNode,
++} from 'react';
++
++const SAFETY_MS = 8000;
++
++type RefreshApi = { refresh: () => void; refreshing: boolean; settleActive: () => void };
++const SignalCtx = createContext<number>(0);
++const ApiCtx = createContext<RefreshApi>({
++  refresh: () => {}, refreshing: false, settleActive: () => {},
++});
++
++export function RefreshProvider({ children }: { children: ReactNode }) {
++  const [signal, setSignal] = useState(0);
++  const [refreshing, setRefreshing] = useState(false);
++  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const refreshingRef = useRef(false);
++
++  const clear = useCallback(() => {
++    if (timer.current) {
++      clearTimeout(timer.current);
++      timer.current = null;
++    }
++    refreshingRef.current = false;
++    setRefreshing(false);
++  }, []);
++
++  const refresh = useCallback(() => {
++    if (refreshingRef.current) return; // debounce while refreshing
++    refreshingRef.current = true;
++    setRefreshing(true);
++    setSignal(s => s + 1);
++    timer.current = setTimeout(clear, SAFETY_MS); // safety: never stick
++  }, [clear]);
++
++  const settleActive = useCallback(() => {
++    if (refreshingRef.current) clear();
++  }, [clear]);
++
++  const api = useMemo<RefreshApi>(
++    () => ({ refresh, refreshing, settleActive }),
++    [refresh, refreshing, settleActive],
++  );
++  return (
++    <SignalCtx.Provider value={signal}>
++      <ApiCtx.Provider value={api}>{children}</ApiCtx.Provider>
++    </SignalCtx.Provider>
++  );
++}
++
++export function useRefreshSignal(): number {
++  return useContext(SignalCtx);
++}
++export function useRefresh(): RefreshApi {
++  return useContext(ApiCtx);
++}
++```
++(Contexts have safe defaults → unwrapped usage never throws and `signal` is `0`.)
++
++- [ ] **Step 4: Run tests** — green.
++- [ ] **Step 5: Full gate** — `npm run typecheck && npm run lint && npm test` green, `src/core` 100%. Commit: `feat(refresh): RefreshProvider — global signal + refreshing lifecycle (AC-1)`.
++
++---
++
++### Task 2: Wire the signal into the fetch hooks + ActivePlace settle + App
++
++**Files:**
++- Modify: `src/shared/place/usePlaceReading.ts`, `src/shared/place/usePlaceDetail.ts`
++- Modify: `src/shared/place/ActivePlaceContext.tsx`
++- Modify: `App.tsx`
++- Test: extend `src/shared/place/__tests__/usePlaceReading.test.tsx` (+ usePlaceDetail) and add a small integration test for AC-3/AC-3b.
++
++**Interfaces:**
++- Consumes: `useRefreshSignal`, `useRefresh` (Task 1).
++
++- [ ] **Step 1: Write failing tests (AC-2, AC-3, AC-3b)**
++  - AC-2: render `usePlaceReading(place)` inside `RefreshProvider` with a fake `AirQualitySource` counting `getCurrentReading`: 1 call on mount; after `refresh()` = 2; an unrelated re-render (signal unchanged) = still 2. Same for `usePlaceDetail`/`getDetail`. Then render WITHOUT `RefreshProvider` → still 1 call, no throw (unwrapped-0 guards the existing suites).
++  - AC-3/AC-3b: render `ActivePlaceProvider` inside `RefreshProvider` with a fake source; `useRefresh().refreshing` is false during initial load; after `refresh()` it's true; once the active reading re-settles (fake resolves) it flips false.
++
++- [ ] **Step 2: Run, verify fail**.
++- [ ] **Step 3: Implement**
++  - `usePlaceReading.ts`: add `const signal = useRefreshSignal();` and include `signal` in the effect deps array `[sourceForPlace, placeKey, signal]`. Keep the existing `eslint-disable-next-line react-hooks/exhaustive-deps` (still excludes only the `place` object). Same edit in `usePlaceDetail.ts`.
++  - `ActivePlaceContext.tsx`: `const { settleActive } = useRefresh();` and add an effect keyed on the reading `state` that calls `settleActive()` (clears `refreshing` when the active place's refetch settles; harmless no-op when not refreshing). Add `settleActive` to that effect's deps (it's stable).
++  - `App.tsx`: wrap the provider tree in `<RefreshProvider>` ABOVE `PlaceSourceProvider` and `ActivePlaceProvider` (so the active place + all rows share one signal).
++
++- [ ] **Step 4: Run tests** — `npm test` green (existing place suites must stay green — the unwrapped-0 default guarantees no behavior change without a provider).
++- [ ] **Step 5: Full gate** green. Commit: `feat(refresh): fetch hooks refetch on signal; ActivePlace clears refreshing (AC-2, AC-3)`.
++
++---
++
++### Task 3: RefreshControl on Teraz + Miejsca
++
++**Files:**
++- Modify: `src/features/teraz/TerazScreen.tsx`, `src/features/miejsca/MiejscaScreen.tsx`
++- Test: extend their tests to assert a `RefreshControl` is wired to `refresh`/`refreshing`.
++
++**Interfaces:**
++- Consumes: `useRefresh` (Task 1).
++
++- [ ] **Step 1: Write failing test** — render each screen inside `RefreshProvider` (+ the providers they need); assert the `ScrollView` has a `refreshControl` prop whose `onRefresh` is the `refresh` fn (query by testID on the RefreshControl, or assert the ScrollView receives `refreshing`). Keep it a behavior check (not a snapshot).
++- [ ] **Step 2: Run, verify fail**.
++- [ ] **Step 3: Implement** — in each screen: `const { refresh, refreshing } = useRefresh();` and pass to the `ScrollView`:
++  ```tsx
++  refreshControl={
++    <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.text.dim} testID="refresh-control" />
++  }
++  ```
++  (import `RefreshControl` from `react-native`; use a dark-theme `tintColor` from tokens). Confirm both screens are `ScrollView` (MiejscaScreen is — spec).
++- [ ] **Step 4: Run tests** — green.
++- [ ] **Step 5: Full gate** green. Commit: `feat(refresh): pull-to-refresh control on Teraz + Miejsca`.
++
++---
++
++### Task 4: Miejsca row data-age
++
++**Files:**
++- Modify: `src/features/miejsca/PlaceRow.tsx`
++- Test: extend `src/features/miejsca/__tests__/PlaceRow.test.tsx`
++
++**Interfaces:**
++- Consumes: `formatFreshness` (`src/core/air`).
++
++- [ ] **Step 1: Write failing test (AC-4)** — with a frozen `now`: a `ready` row renders `formatFreshness(reading.measuredAt, now)`; a `stale` row that still has a `reading` ALSO renders the age; a `brak danych` row (no reading) renders no age line. (Inject `now` via the component if needed, or spy — keep the assertion on the rendered age text.)
++- [ ] **Step 2: Run, verify fail**.
++- [ ] **Step 3: Implement** — in `PlaceRow`, when a `reading` exists (ready or stale), render a dim age line `formatFreshness(reading.measuredAt, new Date())` (consistent with the row subtitle; reuse `colors.text.dim`/`faint`). No age when there's no reading.
++- [ ] **Step 4: Run tests** — green.
++- [ ] **Step 5: Full gate** green, `src/core` 100%. Commit: `feat(miejsca): show data age on rows (AC-4)`.
++
++---
++
++### Task 5: Manual sim verification (AC-5, AC-6) + journal
++- [ ] AC-5: pull on Teraz → spinner + re-fetch; age updates only if GIOŚ has a newer hour. Screenshot → evidence/18.
++- [ ] AC-6: pull on Miejsca → all rows re-fetch + show age; confirm the RefreshControl coexists with the drag-reorder/swipe gestures; note the double-geolocation on the location place.
++- [ ] Journal `docs/harness/18-refresh.md` + spec status.
++
++---
++
++## Self-review
++- **Spec coverage:** AC-1→T1; AC-2/AC-3/AC-3b→T2; AC-4→T4; AC-5/AC-6→T5 (manual); RefreshControl→T3. All covered.
++- **Type consistency:** `useRefreshSignal`/`useRefresh`/`RefreshProvider` defined in T1, consumed unchanged in T2/T3.
++- **No behavior break:** T2's unwrapped-0 default means the 8 existing place/screen suites don't need `RefreshProvider` (guards regressions). Placeholders: none.
+diff --git a/src/features/miejsca/MiejscaScreen.tsx b/src/features/miejsca/MiejscaScreen.tsx
+index f838cbe..f3f58e1 100644
+--- a/src/features/miejsca/MiejscaScreen.tsx
++++ b/src/features/miejsca/MiejscaScreen.tsx
+@@ -1,33 +1,35 @@
+ import { useMemo, useState } from 'react';
+-import { ScrollView, StyleSheet, View } from 'react-native';
++import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
+ import {
+   searchStations,
+   LOCATION_PLACE,
+   type ActivePlace,
+ } from '../../core/places';
+ import { stationLabel } from '../../core/geo';
+ import { colors, spacing } from '../../shared/tokens';
+ import { Text } from '../../shared/ui/Text';
+ import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
+ import { useActivePlace, useFavorites, useStations } from '../../shared/place';
++import { useRefresh } from '../../shared/refresh';
+ import { DraggableFavorites } from './DraggableFavorites';
+ import { PlaceRow } from './PlaceRow';
+ import { SaveButton } from './SaveButton';
+ import { SearchField } from './SearchField';
+ import { MAX_VISIBLE_RESULTS } from './constants';
+ 
+ export function MiejscaScreen() {
+   const [query, setQuery] = useState('');
+   const debouncedQuery = useDebouncedValue(query, 300);
+   const stations = useStations();
+   const { favorites, remove, reorder } = useFavorites();
+   const { setActive } = useActivePlace();
++  const { refresh, refreshing } = useRefresh();
+   const navigation = useNavigation<{ navigate: (n: string) => void }>();
+   const results = useMemo(
+     () =>
+       searchStations(stations, debouncedQuery).slice(0, MAX_VISIBLE_RESULTS),
+     [stations, debouncedQuery],
+   );
+ 
+   const open = (place: ActivePlace) => {
+@@ -35,16 +37,24 @@ export function MiejscaScreen() {
+     navigation.navigate('Teraz');
+   };
+ 
+   return (
+     <ScrollView
+       testID="screen-miejsca"
+       style={styles.screen}
+       contentContainerStyle={styles.content}
++      refreshControl={
++        <RefreshControl
++          refreshing={refreshing}
++          onRefresh={refresh}
++          tintColor={colors.text.dim}
++          testID="refresh-control"
++        />
++      }
+     >
+       <Text variant="city" style={styles.header}>
+         Miejsca
+       </Text>
+       <SearchField value={query} onChangeText={setQuery} />
+ 
+       {query.trim() ? (
+         <View style={styles.list}>
+diff --git a/src/features/miejsca/PlaceRow.tsx b/src/features/miejsca/PlaceRow.tsx
+index 6cde8b0..2c63d62 100644
+--- a/src/features/miejsca/PlaceRow.tsx
++++ b/src/features/miejsca/PlaceRow.tsx
+@@ -1,12 +1,12 @@
+ import type { ReactNode } from 'react';
+ import { Pressable, StyleSheet, View } from 'react-native';
+ import type { ActivePlace } from '../../core/places';
+-import { displayValue } from '../../core/air';
++import { displayValue, formatFreshness } from '../../core/air';
+ import { scene, trendArrow } from '../../core/scene';
+ import { usePlaceReading } from '../../shared/place';
+ import { useSettings } from '../../shared/settings';
+ import { Text } from '../../shared/ui/Text';
+ import { colors, spacing } from '../../shared/tokens';
+ 
+ // One live place row: title/subtitle on the left; on the right the live index in the
+ // scene's key color, or a small dim "brak danych" when the station has no current
+@@ -33,29 +33,34 @@ export function PlaceRow({
+       <View style={styles.left}>
+         <Text variant="city" style={styles.title}>
+           {title}
+         </Text>
+         <Text variant="station" color={colors.text.dim}>
+           {subtitle}
+         </Text>
+         {reading ? (
+-          <View style={styles.trendLine}>
+-            <Text variant="station" color={colors.text.high}>
+-              {scene(reading.index).band}
++          <>
++            <View style={styles.trendLine}>
++              <Text variant="station" color={colors.text.high}>
++                {scene(reading.index).band}
++              </Text>
++              <Text
++                variant="station"
++                color={scene(reading.index).key}
++                style={styles.trend}
++                testID={`trend-${reading.index}`}
++              >
++                {trendArrow(reading.index)}
++              </Text>
++            </View>
++            <Text variant="station" color={colors.text.faint}>
++              {formatFreshness(reading.measuredAt, new Date())}
+             </Text>
+-            <Text
+-              variant="station"
+-              color={scene(reading.index).key}
+-              style={styles.trend}
+-              testID={`trend-${reading.index}`}
+-            >
+-              {trendArrow(reading.index)}
+-            </Text>
+-          </View>
++          </>
+         ) : null}
+       </View>
+       {reading ? (
+         <Text
+           variant="index"
+           color={scene(reading.index).key}
+           style={styles.index}
+         >
+diff --git a/src/features/miejsca/__tests__/MiejscaScreen.test.tsx b/src/features/miejsca/__tests__/MiejscaScreen.test.tsx
+index 8998147..c50f3c4 100644
+--- a/src/features/miejsca/__tests__/MiejscaScreen.test.tsx
++++ b/src/features/miejsca/__tests__/MiejscaScreen.test.tsx
+@@ -1,24 +1,27 @@
+ import {
+   render,
+   screen,
+   waitFor,
+   fireEvent,
++  act,
+ } from '@testing-library/react-native';
++import { RefreshControl } from 'react-native';
+ import realStations from '../../../core/geo/__fixtures__/stations.json';
+ import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { MiejscaScreen } from '../MiejscaScreen';
+ import {
+   PlaceSourceProvider,
+   ActivePlaceProvider,
+   FavoritesProvider,
+   StationsProvider,
+   type SourceForPlace,
+ } from '../../../shared/place';
++import { RefreshProvider } from '../../../shared/refresh';
+ import { SettingsProvider } from '../../../shared/settings';
+ import { DEFAULT_SETTINGS, type SettingsStore } from '../../../core/settings';
+ import type { FavoritesStore } from '../../../core/places';
+ import type { Station } from '../../../core/geo';
+ import type { Reading } from '../../../core/air';
+ 
+ // `any`: untyped GIOŚ fixture JSON, read positionally only in this test setup.
+ const S: Station[] = (realStations as any)['Lista stacji pomiarowych'].map(
+@@ -41,16 +44,28 @@ const sfp: SourceForPlace = () => ({
+   getCurrentReading: () => Promise.resolve(anyReading),
+ });
+ 
+ const mockNavigate = jest.fn();
+ jest.mock('@react-navigation/native', () => ({
+   useNavigation: () => ({ navigate: mockNavigate }),
+ }));
+ 
++// The RN jest preset's RefreshControl mock stores the last-mounted instance on
++// `RefreshControl.latestRef`, exposing the exact props the screen passed —
++// used below to assert the pull-to-refresh wiring without any local mock.
++const refreshControlProps = () =>
++  (
++    RefreshControl as unknown as {
++      latestRef: {
++        props: { testID?: string; refreshing: boolean; onRefresh: () => void };
++      };
++    }
++  ).latestRef.props;
++
+ const w = S.find(s => s.id === 530)!; // Warszawa
+ const g = S.find(s => s.id === 706)!; // Gdańsk
+ 
+ function makeStore(
+   initial: Station[] = [],
+ ): FavoritesStore & { saved: Station[][] } {
+   const saved: Station[][] = [];
+   return {
+@@ -60,37 +75,65 @@ function makeStore(
+       saved.push(l);
+     },
+   };
+ }
+ const settingsStore: SettingsStore = {
+   load: async () => DEFAULT_SETTINGS,
+   save: async () => {},
+ };
+-const renderScreen = (store: FavoritesStore) =>
++const renderScreen = (
++  store: FavoritesStore,
++  sourceForPlace: SourceForPlace = sfp,
++) =>
+   render(
+-    <SettingsProvider store={settingsStore}>
+-      <StationsProvider stations={S}>
+-        <PlaceSourceProvider sourceForPlace={sfp}>
+-          <FavoritesProvider store={store}>
+-            <ActivePlaceProvider>
+-              <MiejscaScreen />
+-            </ActivePlaceProvider>
+-          </FavoritesProvider>
+-        </PlaceSourceProvider>
+-      </StationsProvider>
+-    </SettingsProvider>,
++    <RefreshProvider>
++      <SettingsProvider store={settingsStore}>
++        <StationsProvider stations={S}>
++          <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++            <FavoritesProvider store={store}>
++              <ActivePlaceProvider>
++                <MiejscaScreen />
++              </ActivePlaceProvider>
++            </FavoritesProvider>
++          </PlaceSourceProvider>
++        </StationsProvider>
++      </SettingsProvider>
++    </RefreshProvider>,
+   );
+ 
+ test('AC 006-8: default shows the pinned location row and the empty hint', async () => {
+   await renderScreen(makeStore());
+   expect(screen.getByText('Twoja lokalizacja')).toBeTruthy();
+   expect(screen.getByText('Wyszukaj i dodaj miejsce')).toBeTruthy();
+ });
+ 
++test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
++  let calls = 0;
++  const countingSfp: SourceForPlace = () => ({
++    getCurrentReading: () => {
++      calls++;
++      return Promise.resolve(anyReading);
++    },
++  });
++  await renderScreen(makeStore(), countingSfp);
++  // Initial mount: the pinned location row AND ActivePlaceProvider's active
++  // reading both fetch the location place once.
++  await waitFor(() => expect(calls).toBe(2));
++  expect(refreshControlProps().testID).toBe('refresh-control');
++  expect(refreshControlProps().refreshing).toBe(false);
++
++  // Pull-to-refresh: onRefresh is useRefresh().refresh — invoking it (as a pull
++  // gesture would) re-triggers both fetches (proves the wiring).
++  await act(async () => {
++    refreshControlProps().onRefresh();
++  });
++  expect(calls).toBe(4);
++});
++
+ test('AC 006-9: search filters, + adds a favorite (persists), tap previews + navigates', async () => {
+   const store = makeStore();
+   await renderScreen(store);
+   fireEvent.changeText(screen.getByTestId('search-input'), 'krak');
+   expect(await screen.findByText('Kraków')).toBeTruthy();
+   await screen.findByText('4'); // the result's live reading settled (avoids act races)
+   fireEvent.press(screen.getByTestId('save-400'));
+   await waitFor(() => expect(store.saved).toHaveLength(1));
+diff --git a/src/features/miejsca/__tests__/PlaceRow.test.tsx b/src/features/miejsca/__tests__/PlaceRow.test.tsx
+index 460eb14..1c92558 100644
+--- a/src/features/miejsca/__tests__/PlaceRow.test.tsx
++++ b/src/features/miejsca/__tests__/PlaceRow.test.tsx
+@@ -1,30 +1,32 @@
+ import {
+   render,
+   screen,
+   waitFor,
+   fireEvent,
+   act,
+ } from '@testing-library/react-native';
++import type { ReactNode } from 'react';
+ import { Text as RNText } from 'react-native';
+ import { PlaceRow } from '../PlaceRow';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../../../shared/place';
+ import { SettingsProvider } from '../../../shared/settings';
++import { RefreshProvider, useRefresh } from '../../../shared/refresh';
+ import {
+   DEFAULT_SETTINGS,
+   type Settings,
+   type SettingsStore,
+ } from '../../../core/settings';
+ import type { Station } from '../../../core/geo';
+ import type { Reading } from '../../../core/air';
+-import { displayValue } from '../../../core/air';
++import { displayValue, formatFreshness } from '../../../core/air';
+ import { scene, trendArrow } from '../../../core/scene';
+ import { colorOf } from '../../../shared/test/colorOf';
+ 
+ const w: Station = {
+   id: 530,
+   name: 'Warszawa, Al. Niepodległości',
+   city: 'Warszawa',
+   lat: 0,
+@@ -130,8 +132,93 @@ test('AC-5: the big number honors settings.scale/precision, color stays scene(in
+   };
+   await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) }), {
+     settings,
+   });
+   const expected = displayValue(42, 43, 'µg/m³', 'Dokładna'); // '43.0'
+   const el = await screen.findByText(expected);
+   expect(colorOf(el)).toBe(scene(42).key);
+ });
++
++// Exposes a `refresh-btn` that calls useRefresh().refresh(), so a test can
++// trigger a refetch and drive `usePlaceReading` from 'ready' to 'stale'.
++function RefreshHarness({ children }: { children: ReactNode }) {
++  const { refresh } = useRefresh();
++  return (
++    <>
++      <RNText testID="refresh-btn" onPress={refresh}>
++        refresh
++      </RNText>
++      {children}
++    </>
++  );
++}
++
++describe('AC-4: row data age', () => {
++  const now = new Date('2026-08-11T22:00:00');
++
++  beforeEach(() => {
++    jest.useFakeTimers();
++    jest.setSystemTime(now);
++  });
++
++  afterEach(() => {
++    jest.useRealTimers();
++  });
++
++  test('AC-4: a ready row renders the reading age', async () => {
++    await wrap(() => ({ getCurrentReading: () => Promise.resolve(reading) }));
++    await screen.findByText('42');
++    expect(
++      screen.getByText(formatFreshness(reading.measuredAt, now)),
++    ).toBeTruthy();
++  });
++
++  test('AC-4: a stale row that still has a last reading also renders the age', async () => {
++    let calls = 0;
++    const sfp: SourceForPlace = () => ({
++      getCurrentReading: () => {
++        calls += 1;
++        // First fetch (mount) succeeds; the refresh-triggered refetch fails,
++        // flipping status to 'stale' while the hook keeps the last reading.
++        return calls === 1
++          ? Promise.resolve(reading)
++          : Promise.reject(new Error('down'));
++      },
++    });
++    await render(
++      <SettingsProvider store={settingsStore()}>
++        <RefreshProvider>
++          <PlaceSourceProvider sourceForPlace={sfp}>
++            <RefreshHarness>
++              <PlaceRow
++                place={{ kind: 'station', station: w }}
++                title="Warszawa"
++                subtitle="Al. Niepodległości"
++                onPress={() => {}}
++                testID="row-530"
++              />
++            </RefreshHarness>
++          </PlaceSourceProvider>
++        </RefreshProvider>
++      </SettingsProvider>,
++    );
++    await screen.findByText('42');
++    await fireEvent.press(screen.getByTestId('refresh-btn'));
++    // The refetch rejected (status → 'stale'), but the hook keeps the last
++    // reading, so the row still shows the index — plus the age line.
++    await waitFor(() => expect(calls).toBe(2));
++    expect(screen.getByText('42')).toBeTruthy();
++    expect(
++      screen.getByText(formatFreshness(reading.measuredAt, now)),
++    ).toBeTruthy();
++  });
++
++  test('AC-4: a row with no reading ("brak danych") renders no age line', async () => {
++    await wrap(() => ({
++      getCurrentReading: () => Promise.reject(new Error('down')),
++    }));
++    await screen.findByText('brak danych');
++    expect(
++      screen.queryByText(formatFreshness(reading.measuredAt, now)),
++    ).toBeNull();
++  });
++});
+diff --git a/src/features/teraz/TerazScreen.tsx b/src/features/teraz/TerazScreen.tsx
+index 59cd73b..ac34682 100644
+--- a/src/features/teraz/TerazScreen.tsx
++++ b/src/features/teraz/TerazScreen.tsx
+@@ -1,28 +1,30 @@
+-import { ScrollView, StyleSheet, View } from 'react-native';
++import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { scene } from '../../core/scene';
+ import {
+   displayValue,
+   formatConcentration,
+   formatFreshness,
+   scaleLabel,
+ } from '../../core/air';
+ import { Atmosphere } from '../../shared/ui/Atmosphere';
+ import { GradientBackground } from '../../shared/ui/GradientBackground';
+ import { HistoryChart } from '../../shared/ui/HistoryChart';
+ import { PollutantTiles } from '../../shared/ui/PollutantTiles';
+ import { colors, spacing } from '../../shared/tokens';
+ import { useActivePlace } from '../../shared/place';
++import { useRefresh } from '../../shared/refresh';
+ import { useSettings } from '../../shared/settings';
+ import { Hero } from './Hero';
+ 
+ export function TerazScreen() {
+   const { active, reading, detail } = useActivePlace();
+   const { settings } = useSettings();
++  const { refresh, refreshing } = useRefresh();
+   if (!reading) {
+     return <View testID="teraz-loading" style={styles.loading} />;
+   }
+   const s = scene(reading.index);
+   const eyebrow = active.kind === 'location' ? 'TWOJA LOKALIZACJA' : 'MIEJSCE';
+   const place = {
+     city: reading.city,
+     station: reading.station,
+@@ -41,17 +43,27 @@ export function TerazScreen() {
+       : `PM2.5 · ${formatConcentration(
+           reading.pm25,
+           settings.precision,
+         )} µg/m³`;
+   const scaleCaption = scaleLabel(settings.scale);
+   return (
+     <GradientBackground scene={s}>
+       <Atmosphere scene={s} />
+-      <ScrollView contentContainerStyle={styles.content}>
++      <ScrollView
++        contentContainerStyle={styles.content}
++        refreshControl={
++          <RefreshControl
++            refreshing={refreshing}
++            onRefresh={refresh}
++            tintColor={colors.text.dim}
++            testID="refresh-control"
++          />
++        }
++      >
+         <Hero
+           scene={s}
+           place={place}
+           value={value}
+           pm25Label={pm25Label}
+           scaleCaption={scaleCaption}
+           eyebrow={eyebrow}
+         />
+diff --git a/src/features/teraz/__tests__/TerazScreen.test.tsx b/src/features/teraz/__tests__/TerazScreen.test.tsx
+index 95525f4..a82bd67 100644
+--- a/src/features/teraz/__tests__/TerazScreen.test.tsx
++++ b/src/features/teraz/__tests__/TerazScreen.test.tsx
+@@ -1,27 +1,41 @@
+-import { render, screen, within } from '@testing-library/react-native';
++import { render, screen, within, act } from '@testing-library/react-native';
++import { RefreshControl } from 'react-native';
+ import { TerazScreen } from '../TerazScreen';
+ import { SettingsProvider } from '../../../shared/settings';
+ import {
+   DEFAULT_SETTINGS,
+   type Settings,
+   type SettingsStore,
+ } from '../../../core/settings';
+ import {
+   PlaceSourceProvider,
+   ActivePlaceProvider,
+ } from '../../../shared/place';
++import { RefreshProvider } from '../../../shared/refresh';
+ import type { AirQualitySource, ReadingDetail } from '../../../core/air';
+ import { usAqiFromPm25 } from '../../../core/air';
+ import {
+   fakeAirSource,
+   pendingAirSource,
+ } from '../../../shared/test/fakeAirSource';
+ 
++// The RN jest preset's RefreshControl mock stores the last-mounted instance on
++// `RefreshControl.latestRef`, exposing the exact props the screen passed —
++// used below to assert the pull-to-refresh wiring without any local mock.
++const refreshControlProps = () =>
++  (
++    RefreshControl as unknown as {
++      latestRef: {
++        props: { testID?: string; refreshing: boolean; onRefresh: () => void };
++      };
++    }
++  ).latestRef.props;
++
+ const detail: ReadingDetail = {
+   history: [
+     { at: 'a', pm25: 10, index: 10 },
+     { at: 'b', pm25: 20, index: 20 },
+   ],
+   pollutants: [
+     { code: 'PM10', value: 40 },
+     { code: 'NO2', value: 22 },
+@@ -34,23 +48,25 @@ const detailedSource = (): AirQualitySource => ({
+ 
+ const settingsStore = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
+   load: async () => s,
+   save: async () => {},
+ });
+ 
+ const wrap = (src: () => AirQualitySource, s: Settings = DEFAULT_SETTINGS) =>
+   render(
+-    <SettingsProvider store={settingsStore(s)}>
+-      <PlaceSourceProvider sourceForPlace={src}>
+-        <ActivePlaceProvider>
+-          <TerazScreen />
+-        </ActivePlaceProvider>
+-      </PlaceSourceProvider>
+-    </SettingsProvider>,
++    <RefreshProvider>
++      <SettingsProvider store={settingsStore(s)}>
++        <PlaceSourceProvider sourceForPlace={src}>
++          <ActivePlaceProvider>
++            <TerazScreen />
++          </ActivePlaceProvider>
++        </PlaceSourceProvider>
++      </SettingsProvider>
++    </RefreshProvider>,
+   );
+ 
+ test('spec-002 AC-8: renders the live reading — index, band, city, real pm25, atmosphere', async () => {
+   await wrap(() => fakeAirSource());
+   const gradient = await screen.findByTestId('gradient-background');
+   expect(within(gradient).getByText('118')).toBeTruthy();
+   expect(within(gradient).getByText('Zły')).toBeTruthy();
+   expect(within(gradient).getByText('Kraków')).toBeTruthy();
+@@ -95,8 +111,33 @@ test('AC-5,7: scale US AQI → hero number is usAqiFromPm25(pm25)', async () =>
+   await wrap(() => fakeAirSource(), {
+     ...DEFAULT_SETTINGS,
+     scale: 'US AQI',
+   });
+   const gradient = await screen.findByTestId('gradient-background');
+   expect(within(gradient).getByText(String(usAqiFromPm25(122)))).toBeTruthy();
+   expect(within(gradient).getByText('Zły')).toBeTruthy(); // band stays scene(reading.index)
+ });
++
++test('AC-5,6 (refresh): ScrollView carries a RefreshControl wired to useRefresh()', async () => {
++  let calls = 0;
++  const countingSource = (): AirQualitySource => ({
++    getCurrentReading: () => {
++      calls++;
++      return fakeAirSource().getCurrentReading();
++    },
++  });
++  await wrap(() => countingSource());
++  await screen.findByTestId('gradient-background');
++  expect(calls).toBe(1);
++  expect(refreshControlProps().testID).toBe('refresh-control');
++  expect(refreshControlProps().refreshing).toBe(false); // no refresh in flight yet
++
++  // Pull-to-refresh: onRefresh is useRefresh().refresh — invoking it (as a pull
++  // gesture would) re-triggers the active place's fetch (proves the wiring).
++  await act(async () => {
++    refreshControlProps().onRefresh();
++  });
++  expect(calls).toBe(2);
++  // The active fetch settled within the flush → refreshing is back to false
++  // (ActivePlaceProvider's settleActive cleared it).
++  expect(refreshControlProps().refreshing).toBe(false);
++});
+diff --git a/src/shared/place/ActivePlaceContext.tsx b/src/shared/place/ActivePlaceContext.tsx
+index 35cd040..3425878 100644
+--- a/src/shared/place/ActivePlaceContext.tsx
++++ b/src/shared/place/ActivePlaceContext.tsx
+@@ -9,16 +9,17 @@ import {
+ import type { ReadingDetail } from '../../core/air';
+ import type { Station } from '../../core/geo';
+ import {
+   defaultPlace,
+   LOCATION_PLACE,
+   type ActivePlace,
+ } from '../../core/places';
+ import { useSettings } from '../settings';
++import { useRefresh } from '../refresh';
+ import { usePlaceDetail } from './usePlaceDetail';
+ import { usePlaceReading, type ReadingState } from './usePlaceReading';
+ 
+ type ActivePlaceValue = {
+   active: ActivePlace;
+   setActive: (p: ActivePlace) => void;
+   detail?: ReadingDetail;
+ } & ReadingState;
+@@ -31,26 +32,34 @@ const Ctx = createContext<ActivePlaceValue | null>(null);
+ export function ActivePlaceProvider({
+   defaultStation,
+   children,
+ }: {
+   defaultStation?: Station;
+   children: ReactNode;
+ }) {
+   const { settings } = useSettings();
++  const { settleActive } = useRefresh();
+   const target = defaultStation
+     ? defaultPlace(settings.loc, defaultStation)
+     : LOCATION_PLACE;
+   const [active, setActive] = useState<ActivePlace>(() => target);
+   useEffect(() => {
+     setActive(target);
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset default on loc change, not on the fresh `target` object each render
+   }, [settings.loc, defaultStation]);
+   const state = usePlaceReading(active);
+   const { detail } = usePlaceDetail(active);
++  // `state` gets a new reference every settle (ready or stale) — including the
++  // one triggered by a signal bump — so this clears `refreshing` once the
++  // active place's refetch completes. A harmless no-op when not refreshing
++  // (e.g. the initial mount / place-change settle).
++  useEffect(() => {
++    settleActive();
++  }, [state, settleActive]);
+   const value = useMemo<ActivePlaceValue>(
+     () => ({ active, setActive, detail, ...state }),
+     [active, state, detail],
+   );
+   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+ }
+ 
+ export function useActivePlace(): ActivePlaceValue {
+diff --git a/src/shared/place/__tests__/ActivePlaceContext.test.tsx b/src/shared/place/__tests__/ActivePlaceContext.test.tsx
+index f069839..cefaff3 100644
+--- a/src/shared/place/__tests__/ActivePlaceContext.test.tsx
++++ b/src/shared/place/__tests__/ActivePlaceContext.test.tsx
+@@ -1,28 +1,30 @@
+ import {
+   render,
+   screen,
+   waitFor,
+   fireEvent,
++  act,
+ } from '@testing-library/react-native';
+ import { Text, Pressable } from 'react-native';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../PlaceSourceContext';
+ import { ActivePlaceProvider, useActivePlace } from '../ActivePlaceContext';
+ import { SettingsProvider, useSettings } from '../../settings';
+ import type { Station } from '../../../core/geo';
+ import type { Reading } from '../../../core/air';
+ import {
+   DEFAULT_SETTINGS,
+   type Settings,
+   type SettingsStore,
+ } from '../../../core/settings';
++import { RefreshProvider, useRefresh } from '../../refresh';
+ 
+ const store = (s: Settings = DEFAULT_SETTINGS): SettingsStore => ({
+   load: async () => s,
+   save: async () => {},
+ });
+ 
+ const warsaw: Station = {
+   id: 530,
+@@ -140,8 +142,60 @@ test('AC-6: turning loc off resets active to the default station', async () => {
+   await waitFor(() =>
+     expect(screen.getByText('location:Kraków:4')).toBeTruthy(),
+   );
+   fireEvent.press(screen.getByTestId('toggle-loc'));
+   await waitFor(() =>
+     expect(screen.getByText('station:Warszawa:42')).toBeTruthy(),
+   );
+ });
++
++function RefreshProbe() {
++  const { refreshing, refresh } = useRefresh();
++  return (
++    <>
++      <Text testID="refreshing">{refreshing ? 'true' : 'false'}</Text>
++      <Pressable testID="refresh-btn" onPress={refresh}>
++        <Text>refresh</Text>
++      </Pressable>
++    </>
++  );
++}
++
++test('AC-3/AC-3b: refreshing is false during initial load, true after refresh(), false once the active reading resettles', async () => {
++  let callCount = 0;
++  let resolveSecond: ((r: Reading) => void) | undefined;
++  const refreshingSourceForPlace: SourceForPlace = () => ({
++    getCurrentReading: () => {
++      callCount += 1;
++      if (callCount === 1) return Promise.resolve(rLoc);
++      return new Promise<Reading>(resolve => {
++        resolveSecond = resolve;
++      });
++    },
++  });
++
++  await render(
++    <RefreshProvider>
++      <PlaceSourceProvider sourceForPlace={refreshingSourceForPlace}>
++        <SettingsProvider store={store()}>
++          <ActivePlaceProvider>
++            <RefreshProbe />
++          </ActivePlaceProvider>
++        </SettingsProvider>
++      </PlaceSourceProvider>
++    </RefreshProvider>,
++  );
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++  await waitFor(() => expect(callCount).toBe(1));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(callCount).toBe(2);
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await act(async () => {
++    resolveSecond?.(rWaw);
++  });
++  await waitFor(() =>
++    expect(screen.getByTestId('refreshing').props.children).toBe('false'),
++  );
++});
+diff --git a/src/shared/place/__tests__/usePlaceDetail.test.tsx b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+index 5b612ad..c6b1aba 100644
+--- a/src/shared/place/__tests__/usePlaceDetail.test.tsx
++++ b/src/shared/place/__tests__/usePlaceDetail.test.tsx
+@@ -1,17 +1,26 @@
+-import { renderHook, act, waitFor } from '@testing-library/react-native';
++import {
++  renderHook,
++  render,
++  screen,
++  act,
++  fireEvent,
++  waitFor,
++} from '@testing-library/react-native';
+ import type { ReactNode } from 'react';
++import { Pressable, Text } from 'react-native';
+ import { usePlaceDetail } from '../usePlaceDetail';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../PlaceSourceContext';
+ import { LOCATION_PLACE } from '../../../core/places';
+ import type { Reading, ReadingDetail } from '../../../core/air';
++import { RefreshProvider, useRefresh } from '../../refresh';
+ 
+ // Minimal real Reading (not `{} as any`) — getCurrentReading is unused by
+ // usePlaceDetail, but the stub source must still satisfy AirQualitySource.
+ const READING: Reading = {
+   index: 5,
+   pm25: 5,
+   measuredAt: '2026-08-13 12:00:00',
+   city: 'Kraków',
+@@ -62,8 +71,61 @@ test('AC-7: rejected getDetail → detail undefined (no throw)', async () => {
+     getDetail: () => Promise.reject(new Error('x')),
+   });
+   const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
+     wrapper: wrap(sfp),
+   });
+   await act(async () => {});
+   expect(result.current.detail).toBeUndefined();
+ });
++
++function RefreshDetailHarness() {
++  const { refresh } = useRefresh();
++  usePlaceDetail(LOCATION_PLACE);
++  return (
++    <Pressable testID="refresh-btn" onPress={refresh}>
++      <Text>refresh</Text>
++    </Pressable>
++  );
++}
++
++test('AC-2: usePlaceDetail refetches when the signal bumps, not on an unrelated re-render', async () => {
++  let calls = 0;
++  const sfp: SourceForPlace = () => ({
++    getCurrentReading: async () => READING,
++    getDetail: async () => {
++      calls += 1;
++      return detail;
++    },
++  });
++
++  await render(
++    <RefreshProvider>
++      <PlaceSourceProvider sourceForPlace={sfp}>
++        <RefreshDetailHarness />
++      </PlaceSourceProvider>
++    </RefreshProvider>,
++  );
++  await waitFor(() => expect(calls).toBe(1));
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  await waitFor(() => expect(calls).toBe(2));
++
++  // The second press is debounced by RefreshProvider (signal unchanged) — no refetch.
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(calls).toBe(2);
++});
++
++test('AC-2: unwrapped (no RefreshProvider) — usePlaceDetail still works, 1 call, no throw', async () => {
++  let calls = 0;
++  const sfp: SourceForPlace = () => ({
++    getCurrentReading: async () => READING,
++    getDetail: async () => {
++      calls += 1;
++      return detail;
++    },
++  });
++  const { result } = await renderHook(() => usePlaceDetail(LOCATION_PLACE), {
++    wrapper: wrap(sfp),
++  });
++  await waitFor(() => expect(result.current.detail).toEqual(detail));
++  expect(calls).toBe(1);
++});
+diff --git a/src/shared/place/__tests__/usePlaceReading.test.tsx b/src/shared/place/__tests__/usePlaceReading.test.tsx
+index ade0730..2594b38 100644
+--- a/src/shared/place/__tests__/usePlaceReading.test.tsx
++++ b/src/shared/place/__tests__/usePlaceReading.test.tsx
+@@ -1,17 +1,24 @@
+-import { render, screen, waitFor } from '@testing-library/react-native';
+-import { Text } from 'react-native';
++import {
++  render,
++  screen,
++  waitFor,
++  fireEvent,
++} from '@testing-library/react-native';
++import { useState } from 'react';
++import { Pressable, Text } from 'react-native';
+ import {
+   PlaceSourceProvider,
+   type SourceForPlace,
+ } from '../PlaceSourceContext';
+ import { usePlaceReading } from '../usePlaceReading';
+ import { LOCATION_PLACE } from '../../../core/places';
+ import type { Reading } from '../../../core/air';
++import { RefreshProvider, useRefresh } from '../../refresh';
+ 
+ const READING: Reading = {
+   index: 42,
+   pm25: 43,
+   measuredAt: '2026-08-11 21:00:00',
+   city: 'Warszawa',
+   station: 'x',
+ };
+@@ -41,8 +48,64 @@ test('AC 006-6b: resolves to ready and exposes the reading', async () => {
+ });
+ 
+ test('AC 006-6b: a rejecting source becomes stale, no reading, no throw', async () => {
+   await wrap(() => ({
+     getCurrentReading: () => Promise.reject(new Error('net')),
+   }));
+   await waitFor(() => expect(screen.getByText('stale:-')).toBeTruthy());
+ });
++
++function RefreshHarness() {
++  const { refresh } = useRefresh();
++  const [tick, setTick] = useState(0);
++  usePlaceReading(LOCATION_PLACE);
++  return (
++    <>
++      <Text>{`tick:${tick}`}</Text>
++      <Pressable testID="refresh-btn" onPress={refresh}>
++        <Text>refresh</Text>
++      </Pressable>
++      <Pressable testID="rerender-btn" onPress={() => setTick(n => n + 1)}>
++        <Text>rerender</Text>
++      </Pressable>
++    </>
++  );
++}
++
++test('AC-2: usePlaceReading refetches when the signal bumps, not on an unrelated re-render', async () => {
++  let calls = 0;
++  const sourceForPlace: SourceForPlace = () => ({
++    getCurrentReading: () => {
++      calls += 1;
++      return Promise.resolve(READING);
++    },
++  });
++
++  await render(
++    <RefreshProvider>
++      <PlaceSourceProvider sourceForPlace={sourceForPlace}>
++        <RefreshHarness />
++      </PlaceSourceProvider>
++    </RefreshProvider>,
++  );
++  await waitFor(() => expect(calls).toBe(1));
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  await waitFor(() => expect(calls).toBe(2));
++
++  // A re-render that leaves the signal unchanged must not refetch.
++  await fireEvent.press(screen.getByTestId('rerender-btn'));
++  expect(screen.getByText('tick:1')).toBeTruthy();
++  expect(calls).toBe(2);
++});
++
++test('AC-2: unwrapped (no RefreshProvider) — usePlaceReading still works, 1 call, no throw', async () => {
++  let calls = 0;
++  await wrap(() => ({
++    getCurrentReading: () => {
++      calls += 1;
++      return Promise.resolve(READING);
++    },
++  }));
++  await waitFor(() => expect(screen.getByText('ready:42')).toBeTruthy());
++  expect(calls).toBe(1);
++});
+diff --git a/src/shared/place/usePlaceDetail.ts b/src/shared/place/usePlaceDetail.ts
+index efc8426..24f56f7 100644
+--- a/src/shared/place/usePlaceDetail.ts
++++ b/src/shared/place/usePlaceDetail.ts
+@@ -1,27 +1,29 @@
+ import { useEffect, useState } from 'react';
+ import type { ReadingDetail } from '../../core/air';
+ import type { ActivePlace } from '../../core/places';
++import { useRefreshSignal } from '../refresh';
+ import { useSourceForPlace } from './PlaceSourceContext';
+ 
+ // Fetches rich detail (24h history + PM10/NO2) for the ACTIVE place only, once
+ // per place identity. Mirrors usePlaceReading. Absent getDetail or a rejection
+ // → detail stays undefined (Teraz degrades to Hero-only).
+ export function usePlaceDetail(place: ActivePlace): { detail?: ReadingDetail } {
+   const sourceForPlace = useSourceForPlace();
++  const signal = useRefreshSignal();
+   const [detail, setDetail] = useState<ReadingDetail | undefined>(undefined);
+   const placeKey =
+     place.kind === 'location' ? 'location' : `station:${place.station.id}`;
+   useEffect(() => {
+     let active = true;
+     setDetail(undefined); // reset while the new place's detail loads
+     sourceForPlace(place)
+       .getDetail?.()
+       .then(d => active && setDetail(d))
+       .catch(() => active && setDetail(undefined));
+     return () => {
+       active = false;
+     };
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
+-  }, [sourceForPlace, placeKey]);
++  }, [sourceForPlace, placeKey, signal]);
+   return { detail };
+ }
+diff --git a/src/shared/place/usePlaceReading.ts b/src/shared/place/usePlaceReading.ts
+index 04a650a..d79648a 100644
+--- a/src/shared/place/usePlaceReading.ts
++++ b/src/shared/place/usePlaceReading.ts
+@@ -1,25 +1,27 @@
+ import { useEffect, useState } from 'react';
+ import type { Reading } from '../../core/air';
+ import type { ActivePlace } from '../../core/places';
++import { useRefreshSignal } from '../refresh';
+ import { useSourceForPlace } from './PlaceSourceContext';
+ 
+ export type ReadingState =
+   | { status: 'loading'; reading?: Reading }
+   | { status: 'ready'; reading: Reading }
+   | { status: 'stale'; reading?: Reading };
+ 
+ // Fetches once when the place's IDENTITY changes. On rejection → 'stale',
+ // keeping the last reading if any. The effect is keyed on `placeKey` (a
+ // primitive) rather than the `place` object, so a caller passing a fresh
+ // `{kind:'station',station}` literal every render (e.g. each favorites-list
+ // row) does NOT refire the fetch on unrelated re-renders.
+ export function usePlaceReading(place: ActivePlace): ReadingState {
+   const sourceForPlace = useSourceForPlace();
++  const signal = useRefreshSignal();
+   const [state, setState] = useState<ReadingState>({ status: 'loading' });
+   const placeKey =
+     place.kind === 'location' ? 'location' : `station:${place.station.id}`;
+   useEffect(() => {
+     let active = true;
+     sourceForPlace(place)
+       .getCurrentReading()
+       .then(r => active && setState({ status: 'ready', reading: r }))
+@@ -27,11 +29,11 @@ export function usePlaceReading(place: ActivePlace): ReadingState {
+         () =>
+           active &&
+           setState(prev => ({ status: 'stale', reading: prev.reading })),
+       );
+     return () => {
+       active = false;
+     };
+     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by placeKey; `place` identity intentionally excluded to avoid refetch churn
+-  }, [sourceForPlace, placeKey]);
++  }, [sourceForPlace, placeKey, signal]);
+   return state;
+ }
+diff --git a/src/shared/refresh/__tests__/RefreshProvider.test.tsx b/src/shared/refresh/__tests__/RefreshProvider.test.tsx
+new file mode 100644
+index 0000000..e12b84e
+--- /dev/null
++++ b/src/shared/refresh/__tests__/RefreshProvider.test.tsx
+@@ -0,0 +1,102 @@
++import { render, screen, fireEvent, act } from '@testing-library/react-native';
++import { Text } from 'react-native';
++import { RefreshProvider, useRefreshSignal, useRefresh } from '../index';
++
++beforeEach(() => jest.useFakeTimers());
++afterEach(() => jest.useRealTimers());
++
++function Harness() {
++  const signal = useRefreshSignal();
++  const { refresh, refreshing, settleActive } = useRefresh();
++  return (
++    <>
++      <Text testID="signal">{signal}</Text>
++      <Text testID="refreshing">{refreshing ? 'true' : 'false'}</Text>
++      <Text testID="refresh-btn" onPress={refresh}>
++        refresh
++      </Text>
++      <Text testID="settle-btn" onPress={settleActive}>
++        settle
++      </Text>
++    </>
++  );
++}
++
++test('AC-1: refresh() bumps the signal by 1 and sets refreshing true', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  expect(screen.getByTestId('signal').props.children).toBe(0);
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++
++  expect(screen.getByTestId('signal').props.children).toBe(1);
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++});
++
++test('AC-1: settleActive() sets refreshing false and cancels the safety timeout', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await fireEvent.press(screen.getByTestId('settle-btn'));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  // timeout was cancelled by settleActive — advancing past 8s must not throw
++  // and refreshing must remain false (nothing left to fire).
++  await act(() => jest.advanceTimersByTime(8000));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++});
++
++test('AC-1: the 8s safety timeout auto-clears refreshing when settleActive never comes', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await act(() => jest.advanceTimersByTime(7999));
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++
++  await act(() => jest.advanceTimersByTime(1));
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++});
++
++test('AC-1: a second refresh() while refreshing is a no-op (signal unchanged)', async () => {
++  await render(
++    <RefreshProvider>
++      <Harness />
++    </RefreshProvider>,
++  );
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('signal').props.children).toBe(1);
++
++  await fireEvent.press(screen.getByTestId('refresh-btn'));
++  expect(screen.getByTestId('signal').props.children).toBe(1); // debounced
++  expect(screen.getByTestId('refreshing').props.children).toBe('true');
++});
++
++test('AC-1: unwrapped (no RefreshProvider) — signal is 0, refresh/settleActive are safe no-ops', async () => {
++  await render(<Harness />);
++  expect(screen.getByTestId('signal').props.children).toBe(0);
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++
++  await expect(
++    fireEvent.press(screen.getByTestId('refresh-btn')),
++  ).resolves.not.toThrow();
++  await expect(
++    fireEvent.press(screen.getByTestId('settle-btn')),
++  ).resolves.not.toThrow();
++
++  expect(screen.getByTestId('signal').props.children).toBe(0);
++  expect(screen.getByTestId('refreshing').props.children).toBe('false');
++});
+diff --git a/src/shared/refresh/index.tsx b/src/shared/refresh/index.tsx
+new file mode 100644
+index 0000000..6492432
+--- /dev/null
++++ b/src/shared/refresh/index.tsx
+@@ -0,0 +1,77 @@
++import {
++  createContext,
++  useCallback,
++  useContext,
++  useEffect,
++  useMemo,
++  useRef,
++  useState,
++  type ReactNode,
++} from 'react';
++
++const SAFETY_MS = 8000;
++
++type RefreshApi = {
++  refresh: () => void;
++  refreshing: boolean;
++  settleActive: () => void;
++};
++const SignalCtx = createContext<number>(0);
++const ApiCtx = createContext<RefreshApi>({
++  refresh: () => {},
++  refreshing: false,
++  settleActive: () => {},
++});
++
++export function RefreshProvider({ children }: { children: ReactNode }) {
++  const [signal, setSignal] = useState(0);
++  const [refreshing, setRefreshing] = useState(false);
++  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const refreshingRef = useRef(false);
++
++  const clear = useCallback(() => {
++    if (timer.current) {
++      clearTimeout(timer.current);
++      timer.current = null;
++    }
++    refreshingRef.current = false;
++    setRefreshing(false);
++  }, []);
++
++  const refresh = useCallback(() => {
++    if (refreshingRef.current) return; // debounce while refreshing
++    refreshingRef.current = true;
++    setRefreshing(true);
++    setSignal(s => s + 1);
++    timer.current = setTimeout(clear, SAFETY_MS); // safety: never stick
++  }, [clear]);
++
++  const settleActive = useCallback(() => {
++    if (refreshingRef.current) clear();
++  }, [clear]);
++
++  // Cancel a pending safety timeout if the provider ever unmounts.
++  useEffect(
++    () => () => {
++      if (timer.current) clearTimeout(timer.current);
++    },
++    [],
++  );
++
++  const api = useMemo<RefreshApi>(
++    () => ({ refresh, refreshing, settleActive }),
++    [refresh, refreshing, settleActive],
++  );
++  return (
++    <SignalCtx.Provider value={signal}>
++      <ApiCtx.Provider value={api}>{children}</ApiCtx.Provider>
++    </SignalCtx.Provider>
++  );
++}
++
++export function useRefreshSignal(): number {
++  return useContext(SignalCtx);
++}
++export function useRefresh(): RefreshApi {
++  return useContext(ApiCtx);
++}
